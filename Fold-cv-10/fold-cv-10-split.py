@@ -528,4 +528,182 @@ time_cost = 1.146 * np.mean(qps)
 print(f"The code will take approximately {np.round(time_cost, 4)} hours to reason about")
 
 if __name__ == '__main__':
-    pass
+    is_offline = False
+
+    if is_offline:
+    
+        df_train = df[df["date_id"] <= split_day]
+        df_valid = df[df["date_id"] > split_day]
+        print("Offline mode")
+        print(f"train : {df_train.shape}, valid : {df_valid.shape}")
+    else:
+        df_train = df
+        print("Online mode")
+        if is_train:
+            global_stock_id_feats = {
+                "median_size": df_train.groupby("stock_id")["bid_size"].median() + df_train.groupby("stock_id")["ask_size"].median(),
+                "std_size": df_train.groupby("stock_id")["bid_size"].std() + df_train.groupby("stock_id")["ask_size"].std(),
+                "ptp_size": df_train.groupby("stock_id")["bid_size"].max() - df_train.groupby("stock_id")["bid_size"].min(),
+                "median_price": df_train.groupby("stock_id")["bid_price"].median() + df_train.groupby("stock_id")["ask_price"].median(),
+                "std_price": df_train.groupby("stock_id")["bid_price"].std() + df_train.groupby("stock_id")["ask_price"].std(),
+                "ptp_price": df_train.groupby("stock_id")["bid_price"].max() - df_train.groupby("stock_id")["ask_price"].min(),
+            }
+            if is_offline:
+                df_train_feats = generate_all_features(df_train)
+                print("Build Train Feats Finished.")
+                df_valid_feats = generate_all_features(df_valid)
+                print("Build Valid Feats Finished.")
+                df_valid_feats = reduce_mem_usage(df_valid_feats)
+            else:
+                df_train_feats = generate_all_features(df_train)
+                print("Build Online Train Feats Finished.")
+
+            df_train_feats = reduce_mem_usage(df_train_feats)
+
+    lgb_params = {
+        "objective": "mae",
+        "n_estimators": 6000,
+        "num_leaves": 256,
+        "subsample": 0.6,
+        "colsample_bytree": 0.8,
+        "learning_rate": 0.00871,
+        'max_depth': 11,
+        "n_jobs": 4,
+        "device": "gpu",
+        "verbosity": -1,
+        "importance_type": "gain",
+    }
+    feature_name = list(df_train_feats.columns)
+    print(f"Feature length = {len(feature_name)}")
+
+    num_folds = 5
+    fold_size = 480 // num_folds
+    gap = 5
+
+    models = []
+    scores = []
+
+    model_save_path = 'modelitos_para_despues' 
+    if not os.path.exists(model_save_path):
+        os.makedirs(model_save_path)
+
+    date_ids = df_train['date_id'].values
+
+    for i in range(num_folds):
+        start = i * fold_size
+        end = start + fold_size
+        if i < num_folds - 1:  # No need to purge after the last fold
+            purged_start = end - 2
+            purged_end = end + gap + 2
+            train_indices = (date_ids >= start) & (date_ids < purged_start) | (date_ids > purged_end)
+        else:
+            train_indices = (date_ids >= start) & (date_ids < end)
+        
+        test_indices = (date_ids >= end) & (date_ids < end + fold_size)
+        
+        df_fold_train = df_train_feats[train_indices]
+        df_fold_train_target = df_train['target'][train_indices]
+        df_fold_valid = df_train_feats[test_indices]
+        df_fold_valid_target = df_train['target'][test_indices]
+
+        print(f"Fold {i+1} Model Training")
+        
+        # Train a LightGBM model for the current fold
+        lgb_model = lgb.LGBMRegressor(**lgb_params)
+        lgb_model.fit(
+            df_fold_train[feature_name],
+            df_fold_train_target,
+            eval_set=[(df_fold_valid[feature_name], df_fold_valid_target)],
+            callbacks=[
+                lgb.callback.early_stopping(stopping_rounds=100),
+                lgb.callback.log_evaluation(period=100),
+            ],
+        )
+
+        models.append(lgb_model)
+        # Save the model to a file
+        model_filename = os.path.join(model_save_path, f'doblez_{i+1}.txt')
+        lgb_model.booster_.save_model(model_filename)
+        print(f"Model for fold {i+1} saved to {model_filename}")
+
+        # Evaluate model performance on the validation set
+        fold_predictions = lgb_model.predict(df_fold_valid[feature_name])
+        fold_score = mean_absolute_error(fold_predictions, df_fold_valid_target)
+        scores.append(fold_score)
+        print(f"Fold {i+1} MAE: {fold_score}")
+
+        # Free up memory by deleting fold specific variables
+        del df_fold_train, df_fold_train_target, df_fold_valid, df_fold_valid_target
+        gc.collect()
+
+    # Calculate the average best iteration from all regular folds
+    average_best_iteration = int(np.mean([model.best_iteration_ for model in models]))
+
+    # Update the lgb_params with the average best iteration
+    final_model_params = lgb_params.copy()
+    final_model_params['n_estimators'] = average_best_iteration
+
+    print(f"Training final model with average best iteration: {average_best_iteration}")
+
+    # Train the final model on the entire dataset
+    final_model = lgb.LGBMRegressor(**final_model_params)
+    final_model.fit(
+        df_train_feats[feature_name],
+        df_train['target'],
+        callbacks=[
+            lgb.callback.log_evaluation(period=100),
+        ],
+    )
+
+    # Append the final model to the list of models
+    models.append(final_model)
+
+    # Save the final model to a file
+    final_model_filename = os.path.join(model_save_path, 'doblez-conjunto.txt')
+    final_model.booster_.save_model(final_model_filename)
+    print(f"Final model saved to {final_model_filename}")
+
+    # Now 'models' holds the trained models for each fold and 'scores' holds the validation scores
+    print(f"Average MAE across all folds: {np.mean(scores)}")
+
+    def zero_sum(prices, volumes):
+        std_error = np.sqrt(volumes)
+        step = np.sum(prices) / np.sum(std_error)
+        out = prices - std_error * step
+        return out
+
+    if is_infer:
+        import optiver2023
+        env = optiver2023.make_env()
+        iter_test = env.iter_test()
+        counter = 0
+        y_min, y_max = -64, 64
+        qps, predictions = [], []
+        cache = pd.DataFrame()
+
+        # Weights for each fold model
+        model_weights = [1/len(models)] * len(models) 
+        
+        for (test, revealed_targets, sample_prediction) in iter_test:
+            now_time = time.time()
+            cache = pd.concat([cache, test], ignore_index=True, axis=0)
+            if counter > 0:
+                cache = cache.groupby(['stock_id']).tail(21).sort_values(by=['date_id', 'seconds_in_bucket', 'stock_id']).reset_index(drop=True)
+            feat = generate_all_features(cache)[-len(test):]
+
+            # Generate predictions for each model and calculate the weighted average
+            lgb_predictions = np.zeros(len(test))
+            for model, weight in zip(models, model_weights):
+                lgb_predictions += weight * model.predict(feat)
+
+            lgb_predictions = zero_sum(lgb_predictions, test['bid_size'] + test['ask_size'])
+            clipped_predictions = np.clip(lgb_predictions, y_min, y_max)
+            sample_prediction['target'] = clipped_predictions
+            env.predict(sample_prediction)
+            counter += 1
+            qps.append(time.time() - now_time)
+            if counter % 10 == 0:
+                print(counter, 'qps:', np.mean(qps))
+
+        time_cost = 1.146 * np.mean(qps)
+        print(f"The code will take approximately {np.round(time_cost, 4)} hours to reason about")
