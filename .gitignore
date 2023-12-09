@@ -1,6 +1,7 @@
 example_test_files/
 optiver-trading-at-the-close/
 train.csv
+*.zip
 
 .ipynb_checkpoints/*
 .ipynb_checkpoints

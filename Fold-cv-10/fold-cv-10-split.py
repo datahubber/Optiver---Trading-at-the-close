@@ -8,11 +8,27 @@ from sklearn.linear_model import LinearRegression, Lasso
 import lightgbm as lgb
 import warnings
 from numba import njit, prange
+from warnings import simplefilter
 warnings.filterwarnings("ignore")
+from sklearn.model_selection import KFold, TimeSeriesSplit  
+warnings.filterwarnings("ignore")
+simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
+
+import os
+import time
+import warnings
+from itertools import combinations
+
+from sklearn.metrics import mean_absolute_error
+from sklearn.model_selection import KFold, TimeSeriesSplit
+warnings.filterwarnings("ignore")
+simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
+
 
 from tqdm import tqdm
 import sys
 from numba import njit, prange
+
 
 def feat_eng(df,is_train=True,feats_path=None):
     if is_train:
@@ -423,7 +439,7 @@ def load_models(models_dir,n_splits,cv_split,alias_prep):
 class CFGg:
     # TODO: update the path
     # base_train=pd.read_csv('/kaggle/input/optiver-trading-at-the-close/train.csv')
-    base_train=pd.read_csv('../train.csv')
+    base_train=pd.read_csv('/home/joseph/Projects/Optiver---Trading-at-the-close/optiver-trading-at-the-close/train.csv')
     target_val=base_train['target'].dropna().reset_index(drop=True)
     is_train=False
     ensemble_function=pow_mean
@@ -529,9 +545,17 @@ print(f"The code will take approximately {np.round(time_cost, 4)} hours to reaso
 
 if __name__ == '__main__':
     is_offline = False
+    is_train = True
+    is_infer = True
+    max_lookback = np.nan
+    split_day = 435
+
+    df = pd.read_csv("/home/joseph/Projects/Optiver---Trading-at-the-close/optiver-trading-at-the-close/train.csv")
+    df = df.dropna(subset=["target"])
+    df.reset_index(drop=True, inplace=True)
+    df_shape = df.shape
 
     if is_offline:
-    
         df_train = df[df["date_id"] <= split_day]
         df_valid = df[df["date_id"] > split_day]
         print("Offline mode")
