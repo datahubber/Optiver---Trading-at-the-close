@@ -218,7 +218,6 @@ def other_features(df,is_train=True,global_path=None):
 
     return df
 
-# generate all features
 def generate_all_features(df,is_train=True,global_path=None):
     cols = [c for c in df.columns if c not in ["row_id", "time_id",'target']]
     df = df[cols]
@@ -230,6 +229,7 @@ def generate_all_features(df,is_train=True,global_path=None):
     
     return df[feature_name]
 
+# weights的含义是什么？
 weights = [
     0.004, 0.001, 0.002, 0.006, 0.004, 0.004, 0.002, 0.006, 0.006, 0.002, 0.002, 0.008,
     0.006, 0.002, 0.008, 0.006, 0.002, 0.006, 0.004, 0.002, 0.004, 0.001, 0.006, 0.004,
@@ -252,7 +252,7 @@ weights = [
 
 weights = {int(k):v for k,v in enumerate(weights)}
 
-print("Loaded preprocess funtions");
+# print("Loaded preprocess funtions");
 
 # Loaded preprocess funtions
 class Manifold_prep:
@@ -320,7 +320,7 @@ class Manifold_prep:
         # Generate imbalance features
         df = cls.imbalance_features(df)
         df = cls.other_features(df)
-        gc.collect()  
+        gc.collect()
         feature_name = [i for i in df.columns if i not in ["row_id", "target", "time_id", "date_id"]]
 
         return df[feature_name]
@@ -371,7 +371,6 @@ def eval_prep(expresion:str,df):
     return df
 
 # Ensemble fold functions
-
 def cube(x):
     if x >= 0:
         return x**(1/3)
@@ -422,7 +421,9 @@ def load_models(models_dir,n_splits,cv_split,alias_prep):
     return models
 
 class CFGg:
-    base_train=pd.read_csv('/kaggle/input/optiver-trading-at-the-close/train.csv')
+    # TODO: update the path
+    # base_train=pd.read_csv('/kaggle/input/optiver-trading-at-the-close/train.csv')
+    base_train=pd.read_csv('../train.csv')
     target_val=base_train['target'].dropna().reset_index(drop=True)
     is_train=False
     ensemble_function=pow_mean
@@ -448,7 +449,6 @@ if not CFGg.is_train:
 
 
 # Inference
-
 def predict_fold(models,test_data,drop_columns):
     preds=[]
     for model in models:
@@ -526,3 +526,6 @@ for (test, revealed_targets, sample_prediction) in iter_test:
             
 time_cost = 1.146 * np.mean(qps)
 print(f"The code will take approximately {np.round(time_cost, 4)} hours to reason about")
+
+if __name__ == '__main__':
+    pass
