@@ -791,7 +791,8 @@ results = {"is_offline": is_offline, "LGB": LGB, "NN": NN,
             "is_train": is_train, "is_infer": is_infer, 
             "max_lookback": max_lookback, "split_day": split_day,
             "LGB_time_cost": LGB_time_cost,
-            "Average NN CV Scores": NN_score, "LGB_average_mae": LGB_average_mae,}
+            "Average NN CV Scores": NN_score, "LGB_average_mae": LGB_average_mae,
+            "lgb_params": lgb_params}
 
 if not os.path.exists(results_dir):
     os.mkdir(results_dir)
