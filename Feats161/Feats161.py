@@ -28,15 +28,14 @@ is_infer = True
 max_lookback = np.nan
 split_day = 435
 base_dir = '/home/joseph/Projects/Optiver---Trading-at-the-close'
-model_name = 'LGB'
 log_dir = 'logs'
 results_dir = 'results'
 
 
 
 exp_time = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-graph_name = "%s_split%d_time%s" % \
-                 (model_name, split_day, exp_time)
+graph_name = "LGB_split%d_time%s" % \
+                 (split_day, exp_time)
 
 
 
@@ -493,7 +492,6 @@ if LGB:
         "reg_alpha": 0.1,
         "reg_lambda": 3.25
     }
-    logger.info(f"lgb_params: {lgb_params}")
 
     feature_columns = list(df_train_feats.columns)
     #print(f"Features = {len(feature_columns)}")
@@ -508,10 +506,7 @@ if LGB:
     models_cbt = []
     scores = []
 
-
-    model_save_path = os.path.join(base_dir, model_name, graph_name + '_modelitos_para_despues')
-    logger.info(f"model_save_path {model_save_path}")
-
+    model_save_path = graph_name + 'modelitos_para_despues' 
     if not os.path.exists(model_save_path):
         os.makedirs(model_save_path)
 
@@ -682,7 +677,7 @@ if NN:
     learning_rate = 1e-5
     embedding_dims = [20]
 
-    directory = os.path.join(base_dir, model_name, graph_name + 'NN_Models')
+    directory = graph_name + 'NN_Models'
     if not os.path.exists(directory):
         os.mkdir(directory)
 
