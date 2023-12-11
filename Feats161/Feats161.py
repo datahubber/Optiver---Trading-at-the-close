@@ -22,20 +22,21 @@ simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
 is_offline = False
 LGB = True
-NN = True
+NN = False
 is_train = True
 is_infer = True
 max_lookback = np.nan
 split_day = 435
 base_dir = '/home/joseph/Projects/Optiver---Trading-at-the-close'
+model_name = 'Feats161'
 log_dir = 'logs'
 results_dir = 'results'
 
 
 
 exp_time = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-graph_name = "LGB_split%d_time%s" % \
-                 (split_day, exp_time)
+graph_name = "%s_split%d_time%s" % \
+                 (model_name, split_day, exp_time)
 
 
 
@@ -396,6 +397,10 @@ def other_features(df):
     df["seconds"] = df["seconds_in_bucket"] % 60  
     df["minute"] = df["seconds_in_bucket"] // 60  
     df['time_to_market_close'] = 540 - df['seconds_in_bucket']
+
+    # new feature
+    df['before_5min'] = 1
+    df.loc[df['seconds_in_bucket']>=300,'before_5min'] = -1
     
     for key, value in global_stock_id_feats.items():
         df[f"global_{key}"] = df["stock_id"].map(value.to_dict())
@@ -479,11 +484,11 @@ if LGB:
     
     lgb_params = {
         "objective": "mae",
-        "n_estimators": 6000,
+        "n_estimators": 10000,
         "num_leaves": 256,
         "subsample": 0.6,
         "colsample_bytree": 0.8,
-        "learning_rate": 0.00871,
+        "learning_rate": 0.00971,
         'max_depth': 11,
         "n_jobs": 4,
         "device": "gpu",
@@ -492,6 +497,7 @@ if LGB:
         "reg_alpha": 0.1,
         "reg_lambda": 3.25
     }
+    logger.info(f"lgb_params: {lgb_params}")
 
     feature_columns = list(df_train_feats.columns)
     #print(f"Features = {len(feature_columns)}")
@@ -506,7 +512,10 @@ if LGB:
     models_cbt = []
     scores = []
 
-    model_save_path = graph_name + 'modelitos_para_despues' 
+
+    model_save_path = os.path.join(base_dir, model_name, graph_name + '_modelitos_para_despues')
+    logger.info(f"model_save_path {model_save_path}")
+
     if not os.path.exists(model_save_path):
         os.makedirs(model_save_path)
 
@@ -677,7 +686,7 @@ if NN:
     learning_rate = 1e-5
     embedding_dims = [20]
 
-    directory = graph_name + 'NN_Models'
+    directory = os.path.join(base_dir, model_name, graph_name + 'NN_Models')
     if not os.path.exists(directory):
         os.mkdir(directory)
 
@@ -786,7 +795,8 @@ results = {"is_offline": is_offline, "LGB": LGB, "NN": NN,
             "is_train": is_train, "is_infer": is_infer, 
             "max_lookback": max_lookback, "split_day": split_day,
             "LGB_time_cost": LGB_time_cost,
-            "Average NN CV Scores": NN_score, "LGB_average_mae": LGB_average_mae,}
+            "Average NN CV Scores": NN_score, "LGB_average_mae": LGB_average_mae,
+            "lgb_params": lgb_params}
 
 if not os.path.exists(results_dir):
     os.mkdir(results_dir)

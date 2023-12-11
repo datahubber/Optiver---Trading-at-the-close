@@ -22,7 +22,7 @@ simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
 is_offline = False
 LGB = True
-NN = True
+NN = False
 is_train = True
 is_infer = True
 max_lookback = np.nan
