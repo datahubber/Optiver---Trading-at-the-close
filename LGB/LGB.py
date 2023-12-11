@@ -1,6 +1,7 @@
 import gc
 import os
 import time
+import sys
 import warnings
 from itertools import combinations
 from warnings import simplefilter
@@ -243,7 +244,8 @@ def reduce_mem_usage(df, verbose=0):
     return df
 
 # DataLoading
-df = pd.read_csv("train.csv")
+df = pd.read_csv(os.path.join(base_dir, "train.csv"))
+#os.path.join(base_dir, log_dir)
 df = df.dropna(subset=["target"])
 df.reset_index(drop=True, inplace=True)
 df_shape = df.shape
