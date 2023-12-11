@@ -440,11 +440,11 @@ weights = {int(k):v for k,v in enumerate(weights)}
 if is_offline:
     df_train = df[df["date_id"] <= split_day]
     df_valid = df[df["date_id"] > split_day]
-    print("Offline mode")
-    print(f"train : {df_train.shape}, valid : {df_valid.shape}")
+    logger.info("Offline mode")
+    logger.info(f"train : {df_train.shape}, valid : {df_valid.shape}")
 else:
     df_train = df
-    print("Online mode")
+    logger.info("Online mode")
 
 if is_train:
     global_stock_id_feats = {
@@ -457,13 +457,13 @@ if is_train:
     }
     if is_offline:
         df_train_feats = generate_all_features(df_train)
-        print("Build Train Feats Finished.")
+        logger.info("Build Train Feats Finished.")
         df_valid_feats = generate_all_features(df_valid)
-        print("Build Valid Feats Finished.")
+        logger.info("Build Valid Feats Finished.")
         df_valid_feats = reduce_mem_usage(df_valid_feats)
     else:
         df_train_feats = generate_all_features(df_train)
-        print("Build Online Train Feats Finished.")
+        logger.info("Build Online Train Feats Finished.")
 
     df_train_feats = reduce_mem_usage(df_train_feats)
 
