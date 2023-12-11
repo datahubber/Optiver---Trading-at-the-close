@@ -490,7 +490,7 @@ if LGB:
         "colsample_bytree": 0.8,
         "learning_rate": 0.00971,
         'max_depth': 11,
-        "n_jobs": 4,
+        "n_jobs": 32,
         "device": "gpu",
         "verbosity": -1,
         "importance_type": "gain",
