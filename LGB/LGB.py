@@ -506,11 +506,13 @@ if LGB:
     models_cbt = []
     scores = []
 
-    model_save_path = 'modelitos_para_despues' 
+    model_save_path = graph_name + 'modelitos_para_despues' 
     if not os.path.exists(model_save_path):
         os.makedirs(model_save_path)
 
     date_ids = df_train['date_id'].values
+
+    now_time = time.time()
 
     for i in range(num_folds):
         start = i * fold_size
@@ -557,6 +559,8 @@ if LGB:
 #         )
         
 #         models_cbt.append(cbt_model)
+
+        LGB_time_cost = time.time() - now_time
 
         models.append(lgb_model)
         # Save the model to a file
@@ -673,7 +677,7 @@ if NN:
     learning_rate = 1e-5
     embedding_dims = [20]
 
-    directory = './NN_Models/'
+    directory = graph_name + 'NN_Models'
     if not os.path.exists(directory):
         os.mkdir(directory)
 
@@ -772,15 +776,16 @@ if LGB and NN:
     test_predictions /= 2
 
 # Calculate Score
-if "target" in test_df.columns:
-    test_score = mean_absolute_error(test_df["target"], test_predictions)
-    logger.info(f"Test Mean Absolute Error: {test_score}")
+#if "target" in test_df.columns:
+#    test_score = mean_absolute_error(test_df["target"], test_predictions)
+#    logger.info(f"Test Mean Absolute Error: {test_score}")
 
 
 # result
 results = {"is_offline": is_offline, "LGB": LGB, "NN": NN,
             "is_train": is_train, "is_infer": is_infer, 
             "max_lookback": max_lookback, "split_day": split_day,
+            "LGB_time_cost": LGB_time_cost,
             "Average NN CV Scores": NN_score, "LGB_average_mae": LGB_average_mae,}
 
 if not os.path.exists(results_dir):
