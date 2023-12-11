@@ -62,6 +62,35 @@ def reduce_mem_usage(df, verbose=0):
         logger.info(f"Decreased by {decrease:.2f}%")
     return df
 
+from numba import njit, prange
+
+@njit(parallel=True)
+def compute_triplet_imbalance(df_values, comb_indices):
+    num_rows = df_values.shape[0]
+    num_combinations = len(comb_indices)
+    imbalance_features = np.empty((num_rows, num_combinations))
+    for i in prange(num_combinations):
+        a, b, c = comb_indices[i]
+        for j in range(num_rows):
+            max_val = max(df_values[j, a], df_values[j, b], df_values[j, c])
+            min_val = min(df_values[j, a], df_values[j, b], df_values[j, c])
+            mid_val = df_values[j, a] + df_values[j, b] + df_values[j, c] - min_val - max_val
+            
+            if mid_val == min_val:
+                imbalance_features[j, i] = np.nan
+            else:
+                imbalance_features[j, i] = (max_val - mid_val) / (mid_val - min_val)
+
+    return imbalance_features
+
+def calculate_triplet_imbalance_numba(price, df):
+    df_values = df[price].values
+    comb_indices = [(price.index(a), price.index(b), price.index(c)) for a, b, c in combinations(price, 3)]
+    features_array = compute_triplet_imbalance(df_values, comb_indices)
+    columns = [f"{a}_{b}_{c}_imb2" for a, b, c in combinations(price, 3)]
+    features = pd.DataFrame(features_array, columns=columns)
+    return features
+
 
 def feat_eng(df,is_train=True,feats_path=None):
     if is_train:
@@ -205,78 +234,72 @@ def calculate_triplet_imbalance_numba(price, df):
 
     return features
 
+
 def imbalance_features(df):
+    # Define lists of price and size-related column names
     prices = ["reference_price", "far_price", "near_price", "ask_price", "bid_price", "wap"]
     sizes = ["matched_size", "bid_size", "ask_size", "imbalance_size"]
-
-    # V1
     df["volume"] = df.eval("ask_size + bid_size")
     df["mid_price"] = df.eval("(ask_price + bid_price) / 2")
     df["liquidity_imbalance"] = df.eval("(bid_size-ask_size)/(bid_size+ask_size)")
     df["matched_imbalance"] = df.eval("(imbalance_size-matched_size)/(matched_size+imbalance_size)")
     df["size_imbalance"] = df.eval("bid_size / ask_size")
-    
+
     for c in combinations(prices, 2):
         df[f"{c[0]}_{c[1]}_imb"] = df.eval(f"({c[0]} - {c[1]})/({c[0]} + {c[1]})")
 
     for c in [['ask_price', 'bid_price', 'wap', 'reference_price'], sizes]:
         triplet_feature = calculate_triplet_imbalance_numba(c, df)
         df[triplet_feature.columns] = triplet_feature.values
-        
-    # V2
-    df["stock_weights"] = df["stock_id"].map(weights)
-    df["weighted_wap"] = df["stock_weights"] * df["wap"]
-    df['wap_momentum'] = df.groupby('stock_id')['weighted_wap'].pct_change(periods=6)
+   
     df["imbalance_momentum"] = df.groupby(['stock_id'])['imbalance_size'].diff(periods=1) / df['matched_size']
     df["price_spread"] = df["ask_price"] - df["bid_price"]
     df["spread_intensity"] = df.groupby(['stock_id'])['price_spread'].diff()
     df['price_pressure'] = df['imbalance_size'] * (df['ask_price'] - df['bid_price'])
     df['market_urgency'] = df['price_spread'] * df['liquidity_imbalance']
     df['depth_pressure'] = (df['ask_size'] - df['bid_size']) * (df['far_price'] - df['near_price'])
-    df['spread_depth_ratio'] = (df['ask_price'] - df['bid_price']) / (df['bid_size'] + df['ask_size'])
-    df['mid_price_movement'] = df['mid_price'].diff(periods=5).apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
-    df['micro_price'] = ((df['bid_price'] * df['ask_size']) + (df['ask_price'] * df['bid_size'])) / (df['bid_size'] + df['ask_size'])
-    df['relative_spread'] = (df['ask_price'] - df['bid_price']) / df['wap']
     
+    # Calculate various statistical aggregation features
     for func in ["mean", "std", "skew", "kurt"]:
         df[f"all_prices_{func}"] = df[prices].agg(func, axis=1)
         df[f"all_sizes_{func}"] = df[sizes].agg(func, axis=1)
         
-    # V3
+
     for col in ['matched_size', 'imbalance_size', 'reference_price', 'imbalance_buy_sell_flag']:
-        for window in [1, 2, 3, 5, 10]:
+        for window in [1, 2, 3, 10]:
             df[f"{col}_shift_{window}"] = df.groupby('stock_id')[col].shift(window)
             df[f"{col}_ret_{window}"] = df.groupby('stock_id')[col].pct_change(window)
-            
-    for col in ['ask_price', 'bid_price', 'ask_size', 'bid_size',
-                'wap', 'near_price', 'far_price']:
-        for window in [1, 2, 3, 5, 10]:
+    
+    # Calculate diff features for specific columns
+    for col in ['ask_price', 'bid_price', 'ask_size', 'bid_size', 'market_urgency', 'imbalance_momentum', 'size_imbalance']:
+        for window in [1, 2, 3, 10]:
             df[f"{col}_diff_{window}"] = df.groupby("stock_id")[col].diff(window)
 
     return df.replace([np.inf, -np.inf], 0)
 
-# generate time & stock features
-def other_features(df,is_train=True,global_path=None):
-    df["dow"] = df["date_id"] % 5
-    df["dom"] = df["date_id"] % 20
-    df["seconds"] = df["seconds_in_bucket"] % 60
-    df["minute"] = df["seconds_in_bucket"] // 60
-
+def other_features(df):
+    df["dow"] = df["date_id"] % 5  # Day of the week
+    df["seconds"] = df["seconds_in_bucket"] % 60  
+    df["minute"] = df["seconds_in_bucket"] // 60  
     for key, value in global_stock_id_feats.items():
         df[f"global_{key}"] = df["stock_id"].map(value.to_dict())
 
     return df
 
-def generate_all_features(df,is_train=True,global_path=None):
-    cols = [c for c in df.columns if c not in ["row_id", "time_id",'target']]
+def generate_all_features(df):
+    # Select relevant columns for feature generation
+    cols = [c for c in df.columns if c not in ["row_id", "time_id", "target"]]
     df = df[cols]
-    df = imbalance_features(df)
-    df = other_features(df,is_train,global_path)
-    gc.collect()
     
-    feature_name = [i for i in df.columns if i not in ["row_id", "time_id", "date_id"]]
+    # Generate imbalance features
+    df = imbalance_features(df)
+    df = other_features(df)
+    gc.collect()  
+    feature_name = [i for i in df.columns if i not in ["row_id", "target", "time_id", "date_id"]]
     
     return df[feature_name]
+
+
 
 # weights的含义是什么？
 weights = [
@@ -532,51 +555,6 @@ cache = pd.DataFrame()
 counter=0
 qps=[]
 dfs_evaluated={}
-
-# for (test, revealed_targets, sample_prediction) in iter_test:
-#     now_time = time.time()
-#     preds={}
-#     cache = pd.concat([cache, test], ignore_index=True, axis=0)
-    
-#     if counter > 0:
-#         cache = cache.groupby(['stock_id']).tail(21).sort_values(by=['date_id', 'seconds_in_bucket', 'stock_id']).reset_index(drop=True)
-    
-#     for CFG in CFGlist:
-#         #print(CFG.name,dfs_evaluated.keys())
-#         #scored_index=
-#         st=time.time()
-#         prep_test=eval_prep(CFG.name,cache)[-len(test):]
-#         print(f'preprocess time: {time.time()-st}')
-#         st=time.time()
-#         preds[CFG.name]=predict_fold(CFG.models,prep_test,CFG.drop_columns)*CFG.weight
-#         print(f'{CFG.name} inference time: {time.time()-st}')
-
-#     #Make a dataframe of the results
-#     df_results=pd.DataFrame(preds)
-    
-#     #Calculates the sum of the weighted results
-#     target_result=df_results.sum(axis=1)
-    
-#     lgb_predictions = zero_sum(target_result.values, test['bid_size'] + test['ask_size'])
-#     clipped_predictions = np.clip(lgb_predictions, y_min, y_max)
-    
-#     #Makes and debug the targets and results
-#     print(revealed_targets.head(10)['revealed_target'])
-#     #print(revealed_targets)
-    
-#     sample_prediction['target'] = clipped_predictions
-#     env.predict(sample_prediction)
-    
-#     #Important to save runtime excecution
-#     dfs_evaluated={}
-#     counter += 1
-    
-#     qps.append(time.time() - now_time)
-#     if counter % 10 == 0:
-#         print(counter, 'qps:', np.mean(qps))
-            
-#time_cost = 1.146 * np.mean(qps)
-#print(f"The code will take approximately {np.round(time_cost, 4)} hours to reason about")
 
 if __name__ == '__main__':
     is_offline = False
