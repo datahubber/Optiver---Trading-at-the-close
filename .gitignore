@@ -16,6 +16,7 @@ train.csv
 .idea
 .vscode
 logs/*
+bash_logs/*
 tblogs/*
 optiver2023
 

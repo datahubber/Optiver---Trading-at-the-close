@@ -419,6 +419,7 @@ def generate_all_features(df):
     df = other_features(df)
     gc.collect()  
     feature_name = [i for i in df.columns if i not in ["row_id", "target", "time_id", "date_id"]]
+    logger.info(f"feats_length:{len(feature_name)}")
     
     return df[feature_name]
 

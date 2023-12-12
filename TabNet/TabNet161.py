@@ -22,6 +22,7 @@ simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
 is_offline = False
 LGB = False
+NN = False
 TabNet = True
 is_train = True
 is_infer = False
@@ -416,6 +417,7 @@ def generate_all_features(df):
     df = other_features(df)
     gc.collect()  
     feature_name = [i for i in df.columns if i not in ["row_id", "target", "time_id", "date_id"]]
+    logger.info(f"feats_length:{len(feature_name)}")
     
     return df[feature_name]
 
@@ -783,7 +785,7 @@ if TabNet:
     import gc
     from sklearn.model_selection import KFold
     from pytorch_tabnet.tab_model import TabNetClassifier, TabNetRegressor
-    from nn import L1Loss
+    from torch.nn import L1Loss
     
     df_train_feats = df_train_feats.groupby('stock_id').apply(lambda group: group.fillna(method='ffill')).fillna(0)
     
@@ -823,7 +825,7 @@ if TabNet:
 
     for fold, (tr, te) in enumerate(gkf.split(df_train_feats,df_train['target'],df_train['date_id'])):
 
-        ckp_path = os.path.join(directory, f'nn_Fold_{fold+1}.h5')
+        #ckp_path = os.path.join(directory, f'nn_Fold_{fold+1}.h5')
 
         X_tr_continuous = df_train_feats.iloc[tr][numerical_features].values
         X_val_continuous = df_train_feats.iloc[te][numerical_features].values
@@ -843,6 +845,7 @@ if TabNet:
         logger.info(f"Creating Model - Fold{fold}")
         #num_continuous_features, num_categorical_features, embedding_dims, num_labels, hidden_units, dropout_rates, learning_rate
         # model = create_mlp(len(numerical_features), num_categorical_features, embedding_dims, 1, hidden_units, dropout_rates, learning_rate)
+
         model = TabNetRegressor()
 
         #rlr = ReduceLROnPlateau(monitor='val_mean_absolute_error', factor=0.1, patience=3, verbose=0, min_delta=1e-4, mode='min')
@@ -854,15 +857,25 @@ if TabNet:
         #model.fit((X_tr_continuous,X_tr_categorical), y_tr,
         #          validation_data=([X_val_continuous,X_val_categorical], y_val),
         #          epochs=200, batch_size=batch_size,callbacks=[ckp,es,rlr])
-        model.fit((X_tr_continuous,X_tr_categorical), y_tr,
-                  validation_data=([X_val_continuous,X_val_categorical], y_val)
-                  eval_metric=['mae'], max_epochs=epochs, batch_size=batch_size, loss_fn=L1Loss)
+        X_tr = np.concatenate((X_tr_continuous,X_tr_categorical), axis=1)
+        X_val = np.concatenate((X_val_continuous,X_val_categorical), axis=1)
+        y_tr = y_tr.reshape(-1, 1)
+        y_val = y_val.reshape(-1, 1)
+
+        logger.info(f"X_tr shape: {X_tr.shape}")
+        logger.info(f"X_val shape: {X_val.shape}")
+
+
+        model.fit(X_tr, y_tr,
+                 eval_set=[(X_val, y_val)],
+                 #eval_metric=['mae'], max_epochs=epochs, batch_size=batch_size, loss_fn=L1Loss)
+                 eval_metric=['mae'], max_epochs=epochs, batch_size=batch_size)
 
         #output = model.predict((X_val_continuous,X_val_categorical), batch_size=batch_size * 4)
-        output = model.predict((X_val_continuous,X_val_categorical))
+        output = model.predict(X_val)
 
         #pred[te] += model.predict((X_val_continuous,X_val_categorical), batch_size=batch_size * 4).ravel()
-        pred[te] += model.predict((X_val_continuous,X_val_categorical)).ravel()
+        pred[te] += model.predict(X_val).ravel()
 
         score = mean_absolute_error(y_val, pred[te])
         scores.append(score)
