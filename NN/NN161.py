@@ -21,10 +21,10 @@ simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
 
 is_offline = False
-LGB = True
-NN = False
+LGB = False
+NN = True
 is_train = True
-is_infer = True
+is_infer = False
 max_lookback = np.nan
 split_day = 435
 base_dir = '/home/joseph/Projects/Optiver---Trading-at-the-close'
@@ -693,14 +693,21 @@ if NN:
     learning_rate = 1e-5
     embedding_dims = [20]
 
-    directory = os.path.join(base_dir, model_name, graph_name + 'NN_Models')
+    logger.info("batch_size:",batch_size)
+    logger.info("hidden_units:",hidden_units)
+    logger.info("dropout_rates:",dropout_rates)
+    logger.info("learning_rate:",learning_rate)
+    logger.info("embedding_dims:",embedding_dims)
+
+    directory = os.path.join(base_dir, model_name, graph_name + '_NN_Models')
     if not os.path.exists(directory):
         os.mkdir(directory)
 
     pred = np.zeros(len(df_train['target']))
     scores = []
     gkf = PurgedGroupTimeSeriesSplit(n_splits = 5, group_gap = 5)
-
+    now_time = time.time()
+    time_cost_list = []
 
     for fold, (tr, te) in enumerate(gkf.split(df_train_feats,df_train['target'],df_train['date_id'])):
 
@@ -752,8 +759,13 @@ if NN:
         K.clear_session()
         del model
         gc.collect()
-    NN_score = np.mean(scores)
+        time_cost = time.time() - now_time
+        time_cost_list.append(time_cost)
 
+        logger.info(f"cost time {time_cost}")
+    NN_score = np.mean(scores)
+    time_cost_all = sum(time_cost_list)
+    logger.info(f"Time cost all folds: {time_cost_all}")
     logger.info("Average NN CV Scores:",np.mean(scores))
 
 ### evaluation on test set
@@ -803,7 +815,11 @@ results = {"is_offline": is_offline, "LGB": LGB, "NN": NN,
             "max_lookback": max_lookback, "split_day": split_day,
             "time_cost": time_cost_all,
             "Average NN CV Scores": NN_score, "LGB_average_mae": LGB_average_mae,
-            "lgb_params": lgb_params}
+            "lgb_params": lgb_params,
+            "batch_size": batch_size,
+            "hidden_units": hidden_units, "dropout_rates": dropout_rates, "learning_rate": learning_rate,
+            "embedding_dims": embedding_dims
+            }
 
 if not os.path.exists(results_dir):
     os.mkdir(results_dir)
