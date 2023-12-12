@@ -489,13 +489,15 @@ if LGB:
         "num_leaves": 256,
         "subsample": 0.6,
         "colsample_bytree": 0.8,
-        "learning_rate": 0.00971,
+        #"learning_rate": 0.00971,
+        "learning_rate": 0.01,
         'max_depth': 11,
         "n_jobs": 32,
         "device": "gpu",
         "verbosity": -1,
         "importance_type": "gain",
-        "reg_alpha": 0.1,
+        #"reg_alpha": 0.1,
+        "reg_alpha": 0.2,
         "reg_lambda": 3.25
     }
     logger.info(f"lgb_params: {lgb_params}")

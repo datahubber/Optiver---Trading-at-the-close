@@ -38,8 +38,6 @@ exp_time = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
 graph_name = "%s_split%d_time%s" % \
                  (model_name, split_day, exp_time)
 
-
-
 # Utilities
 def weighted_average(a):
     w = []
@@ -79,7 +77,6 @@ logger.info(f'is_train {is_train}')
 logger.info(f'is_infer {is_infer}')
 logger.info(f'max_lookback {max_lookback}')
 logger.info(f'split_day {split_day}')
-
 
 
 from sklearn.model_selection import KFold
@@ -489,7 +486,8 @@ if LGB:
         "num_leaves": 256,
         "subsample": 0.6,
         "colsample_bytree": 0.8,
-        "learning_rate": 0.00971,
+        #"learning_rate": 0.00971,
+        "learning_rate": 0.01,
         'max_depth': 11,
         "n_jobs": 32,
         "device": "gpu",
@@ -629,7 +627,6 @@ if LGB:
 #logger.info(f"Time cost all folds: {time_cost_all}")
 
 ## NN
-
 def create_mlp(num_continuous_features, num_categorical_features, embedding_dims, num_labels, hidden_units, dropout_rates, learning_rate,l2_strength=0.01):
 
     # Numerical variables input
@@ -692,16 +689,21 @@ if NN:
     nn_models = []
 
     batch_size = 64
-    hidden_units = [128,128]
-    dropout_rates = [0.1,0.1,0.1]
+    hidden_units = [128, 64, 128]
+    dropout_rates = [0.1,0.1,0.1,0.1]
+    #learning_rate = 1e-8
     learning_rate = 1e-5
     embedding_dims = [20]
+    es_min_delta=1e-4
+    es_patience=40
 
     logger.info(f"batch_size:{batch_size}")
     logger.info(f"hidden_units:{hidden_units}")
     logger.info(f"dropout_rates:{dropout_rates}")
     logger.info(f"learning_rate:{learning_rate}")
     logger.info(f"embedding_dims:{embedding_dims}")
+    logger.info(f"es_min_delta:{es_min_delta}")
+    logger.info(f"es_patience:{es_patience}")
 
     directory = os.path.join(base_dir, model_name, graph_name + '_NN_Models')
     if not os.path.exists(directory):
@@ -733,11 +735,13 @@ if NN:
         logger.info(f"Y_test shape:{y_val.shape}")
 
         logger.info(f"Creating Model - Fold{fold}")
+        #num_continuous_features, num_categorical_features, embedding_dims, num_labels, hidden_units, dropout_rates, learning_rate
         model = create_mlp(len(numerical_features), num_categorical_features, embedding_dims, 1, hidden_units, dropout_rates, learning_rate)
 
         rlr = ReduceLROnPlateau(monitor='val_mean_absolute_error', factor=0.1, patience=3, verbose=0, min_delta=1e-4, mode='min')
         ckp = ModelCheckpoint(ckp_path, monitor='val_mean_absolute_error', verbose=0, save_best_only=True, save_weights_only=True, mode='min')
-        es = EarlyStopping(monitor='val_mean_absolute_error', min_delta=1e-4, patience=10, mode='min', restore_best_weights=True, verbose=0)
+        #es = EarlyStopping(monitor='val_mean_absolute_error', min_delta=1e-4, patience=10, mode='min', restore_best_weights=True, verbose=0)
+        es = EarlyStopping(monitor='val_mean_absolute_error', min_delta=es_min_delta, patience=es_patience, mode='min', restore_best_weights=True, verbose=0)
 
         logger.info(f"Fitting Model - Fold{fold}")
         model.fit((X_tr_continuous,X_tr_categorical), y_tr,
@@ -750,7 +754,7 @@ if NN:
 
         score = mean_absolute_error(y_val, pred[te])
         scores.append(score)
-        logger.info(f'Fold {fold} MAE:\t', score)
+        logger.info(f"Fold {fold} MAE: {score}\t")
 
         # Finetune 3 epochs on validation set with small learning rate
         logger.info(f"Finetuning Model - Fold{fold}")
@@ -770,7 +774,7 @@ if NN:
     NN_score = np.mean(scores)
     time_cost_all = sum(time_cost_list)
     logger.info(f"Time cost all folds: {time_cost_all}")
-    logger.info("Average NN CV Scores:",np.mean(scores))
+    logger.info(f"Average NN CV Scores: {np.mean(scores)}")
 
 ### evaluation on test set
 
