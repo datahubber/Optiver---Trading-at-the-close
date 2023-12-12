@@ -518,6 +518,7 @@ if LGB:
     date_ids = df_train['date_id'].values
 
     now_time = time.time()
+    time_cost_list = []
 
     for i in range(num_folds):
         start = i * fold_size
@@ -565,7 +566,9 @@ if LGB:
         
 #         models_cbt.append(cbt_model)
 
-        LGB_time_cost = time.time() - now_time
+        time_cost = time.time() - now_time
+        logger.info(f"Time cost {time_cose}")
+        time_cost_list.append(time_cose)
 
         models.append(lgb_model)
         # Save the model to a file
@@ -615,7 +618,9 @@ if LGB:
         
         # Calculate and print the average MAE across all folds
 LGB_average_mae = np.mean(scores)
+time_cost_all = sum(time_cost_list)
 logger.info(f"Average MAE across all folds: {LGB_average_mae}")
+logger.info(f"Time cost: {time_cost_all}")
 
 ## NN
 
