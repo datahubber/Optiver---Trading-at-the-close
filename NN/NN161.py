@@ -28,7 +28,7 @@ is_infer = False
 max_lookback = np.nan
 split_day = 435
 base_dir = '/home/joseph/Projects/Optiver---Trading-at-the-close'
-model_name = 'Feats161'
+model_name = 'NN'
 log_dir = 'logs'
 results_dir = 'results'
 
@@ -623,10 +623,10 @@ if LGB:
         models.append(final_model)
         
         # Calculate and print the average MAE across all folds
-LGB_average_mae = np.mean(scores)
-time_cost_all = sum(time_cost_list)
-logger.info(f"Average MAE across all folds: {LGB_average_mae}")
-logger.info(f"Time cost all folds: {time_cost_all}")
+#LGB_average_mae = np.mean(scores)
+#time_cost_all = sum(time_cost_list)
+#logger.info(f"Average MAE across all folds: {LGB_average_mae}")
+#logger.info(f"Time cost all folds: {time_cost_all}")
 
 ## NN
 
@@ -678,6 +678,10 @@ if NN:
     import tensorflow.keras.layers as layers
     from tensorflow.keras.regularizers import l2
     from tensorflow.keras.callbacks import Callback, ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
+
+    gpus = tf.config.list_physical_devices('GPU')
+    for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
     
     df_train_feats = df_train_feats.groupby('stock_id').apply(lambda group: group.fillna(method='ffill')).fillna(0)
     
@@ -693,11 +697,11 @@ if NN:
     learning_rate = 1e-5
     embedding_dims = [20]
 
-    logger.info("batch_size:",batch_size)
-    logger.info("hidden_units:",hidden_units)
-    logger.info("dropout_rates:",dropout_rates)
-    logger.info("learning_rate:",learning_rate)
-    logger.info("embedding_dims:",embedding_dims)
+    logger.info(f"batch_size:{batch_size}")
+    logger.info(f"hidden_units:{hidden_units}")
+    logger.info(f"dropout_rates:{dropout_rates}")
+    logger.info(f"learning_rate:{learning_rate}")
+    logger.info(f"embedding_dims:{embedding_dims}")
 
     directory = os.path.join(base_dir, model_name, graph_name + '_NN_Models')
     if not os.path.exists(directory):
@@ -721,12 +725,12 @@ if NN:
 
         y_tr, y_val = df_train['target'].iloc[tr].values, df_train['target'].iloc[te].values
 
-        logger.info("X_train_numerical shape:",X_tr_continuous.shape)
-        logger.info("X_train_categorical shape:",X_tr_categorical.shape)
-        logger.info("Y_train shape:",y_tr.shape)
-        logger.info("X_test_numerical shape:",X_val_continuous.shape)
-        logger.info("X_test_categorical shape:",X_val_categorical.shape)
-        logger.info("Y_test shape:",y_val.shape)
+        logger.info(f"X_train_numerical shape:{X_tr_continuous.shape}")
+        logger.info(f"X_train_categorical shape:{X_tr_categorical.shape}")
+        logger.info(f"Y_train shape:{y_tr.shape}")
+        logger.info(f"X_test_numerical shape:{X_val_continuous.shape}")
+        logger.info(f"X_test_categorical shape:{X_val_categorical.shape}")
+        logger.info(f"Y_test shape:{y_val.shape}")
 
         logger.info(f"Creating Model - Fold{fold}")
         model = create_mlp(len(numerical_features), num_categorical_features, embedding_dims, 1, hidden_units, dropout_rates, learning_rate)
