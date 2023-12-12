@@ -35,7 +35,7 @@ results_dir = 'results'
 
 
 
-exp_time = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+exp_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 graph_name = "%s_split%d_time%s" % \
                  (model_name, split_day, exp_time)
 
