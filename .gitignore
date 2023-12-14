@@ -7,6 +7,8 @@ NN_Models/
 NN/NN_split*
 Feats161/Feats161_split*
 Feats162/Feats162_split*
+Feats164/Feats162_split*
+Feats/*_split*
 Ensemble162/Ensemble162_split*
 LGB/LGB_split*
 train.csv

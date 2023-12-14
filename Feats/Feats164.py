@@ -28,7 +28,8 @@ is_infer = True
 max_lookback = np.nan
 split_day = 435
 base_dir = '/home/joseph/Projects/Optiver---Trading-at-the-close'
-model_name = 'Feats162'
+model_name = 'Feats164'
+model_dir = 'Feats'
 log_dir = 'logs'
 results_dir = 'results'
 
@@ -395,7 +396,9 @@ def imbalance_features(df):
 
 def other_features(df):
     df["dow"] = df["date_id"] % 5  # Day of the week
-    df["month"] = df["date_id"] % 30  # Day of the week
+    df["dom"] = df["date_id"] % 30  # Day of the week
+    df["doq"] = df["date_id"] % 90  # Day of the week
+    df["doy"] = df["date_id"] % 365  # Day of the week
     df["seconds"] = df["seconds_in_bucket"] % 60  
     df["minute"] = df["seconds_in_bucket"] // 60  
     df['time_to_market_close'] = 540 - df['seconds_in_bucket']
@@ -518,7 +521,7 @@ if LGB:
     scores = []
 
 
-    model_save_path = os.path.join(base_dir, model_name, graph_name + '_modelitos_para_despues')
+    model_save_path = os.path.join(base_dir, model_dir, graph_name + '_modelitos_para_despues')
     logger.info(f"model_save_path {model_save_path}")
 
     if not os.path.exists(model_save_path):
@@ -697,7 +700,7 @@ if NN:
     learning_rate = 1e-5
     embedding_dims = [20]
 
-    directory = os.path.join(base_dir, model_name, graph_name + 'NN_Models')
+    directory = os.path.join(base_dir, model_dir, graph_name + 'NN_Models')
     if not os.path.exists(directory):
         os.mkdir(directory)
 
