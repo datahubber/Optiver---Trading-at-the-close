@@ -3,7 +3,7 @@
 TIME_HOME="/home/joseph/Projects/Optiver---Trading-at-the-close"
 TF_HOME="/home/joseph/anaconda3/envs/kaggle/bin"
 #TIME_NOW=`date +"%Y-%m-%d %T"`
-TIME_NOW=`date +"%Y-%m-%d-%H-%M-%S"`
+TIME_NOW=`date +"%Y-%m-%d_%H-%M-%S"`
 #echo ${TIME_NOW}
 
 #${TF_HOME}/python -u ${TIME_HOME}/LGB/LGB.py

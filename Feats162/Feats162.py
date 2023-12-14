@@ -21,15 +21,14 @@ simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
 
 is_offline = False
-LGB = False
+LGB = True
 NN = False
-TabNet = True
 is_train = True
-is_infer = False
+is_infer = True
 max_lookback = np.nan
 split_day = 435
 base_dir = '/home/joseph/Projects/Optiver---Trading-at-the-close'
-model_name = 'TabNet'
+model_name = 'Feats162'
 log_dir = 'logs'
 results_dir = 'results'
 
@@ -38,6 +37,8 @@ results_dir = 'results'
 exp_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 graph_name = "%s_split%d_time%s" % \
                  (model_name, split_day, exp_time)
+
+
 
 # Utilities
 def weighted_average(a):
@@ -78,6 +79,7 @@ logger.info(f'is_train {is_train}')
 logger.info(f'is_infer {is_infer}')
 logger.info(f'max_lookback {max_lookback}')
 logger.info(f'split_day {split_day}')
+
 
 
 from sklearn.model_selection import KFold
@@ -393,6 +395,7 @@ def imbalance_features(df):
 
 def other_features(df):
     df["dow"] = df["date_id"] % 5  # Day of the week
+    df["month"] = df["date_id"] % 30  # Day of the week
     df["seconds"] = df["seconds_in_bucket"] % 60  
     df["minute"] = df["seconds_in_bucket"] // 60  
     df['time_to_market_close'] = 540 - df['seconds_in_bucket']
@@ -495,7 +498,8 @@ if LGB:
         "device": "gpu",
         "verbosity": -1,
         "importance_type": "gain",
-        "reg_alpha": 0.1,
+        #"reg_alpha": 0.1,
+        "reg_alpha": 0.2,
         "reg_lambda": 3.25
     }
     logger.info(f"lgb_params: {lgb_params}")
@@ -623,12 +627,13 @@ if LGB:
         models.append(final_model)
         
         # Calculate and print the average MAE across all folds
-#LGB_average_mae = np.mean(scores)
-#time_cost_all = sum(time_cost_list)
-#logger.info(f"Average MAE across all folds: {LGB_average_mae}")
-#logger.info(f"Time cost all folds: {time_cost_all}")
+LGB_average_mae = np.mean(scores)
+time_cost_all = sum(time_cost_list)
+logger.info(f"Average MAE across all folds: {LGB_average_mae}")
+logger.info(f"Time cost all folds: {time_cost_all}")
 
 ## NN
+
 def create_mlp(num_continuous_features, num_categorical_features, embedding_dims, num_labels, hidden_units, dropout_rates, learning_rate,l2_strength=0.01):
 
     # Numerical variables input
@@ -677,10 +682,6 @@ if NN:
     import tensorflow.keras.layers as layers
     from tensorflow.keras.regularizers import l2
     from tensorflow.keras.callbacks import Callback, ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
-
-    gpus = tf.config.list_physical_devices('GPU')
-    for gpu in gpus:
-        tf.config.experimental.set_memory_growth(gpu, True)
     
     df_train_feats = df_train_feats.groupby('stock_id').apply(lambda group: group.fillna(method='ffill')).fillna(0)
     
@@ -691,36 +692,24 @@ if NN:
     nn_models = []
 
     batch_size = 64
-    hidden_units = [128, 64, 128]
-    dropout_rates = [0.1,0.1,0.1,0.1]
-    #learning_rate = 1e-8
+    hidden_units = [128,128]
+    dropout_rates = [0.1,0.1,0.1]
     learning_rate = 1e-5
     embedding_dims = [20]
-    es_min_delta=1e-4
-    es_patience=40
 
-    logger.info(f"batch_size:{batch_size}")
-    logger.info(f"hidden_units:{hidden_units}")
-    logger.info(f"dropout_rates:{dropout_rates}")
-    logger.info(f"learning_rate:{learning_rate}")
-    logger.info(f"embedding_dims:{embedding_dims}")
-    logger.info(f"es_min_delta:{es_min_delta}")
-    logger.info(f"es_patience:{es_patience}")
-
-    directory = os.path.join(base_dir, model_name, graph_name + '_NN_Models')
+    directory = os.path.join(base_dir, model_name, graph_name + 'NN_Models')
     if not os.path.exists(directory):
         os.mkdir(directory)
 
     pred = np.zeros(len(df_train['target']))
     scores = []
     gkf = PurgedGroupTimeSeriesSplit(n_splits = 5, group_gap = 5)
-   
-    time_cost_list = []
+
 
     for fold, (tr, te) in enumerate(gkf.split(df_train_feats,df_train['target'],df_train['date_id'])):
 
         ckp_path = os.path.join(directory, f'nn_Fold_{fold+1}.h5')
-        now_time = time.time()
+
         X_tr_continuous = df_train_feats.iloc[tr][numerical_features].values
         X_val_continuous = df_train_feats.iloc[te][numerical_features].values
 
@@ -729,21 +718,19 @@ if NN:
 
         y_tr, y_val = df_train['target'].iloc[tr].values, df_train['target'].iloc[te].values
 
-        logger.info(f"X_train_numerical shape:{X_tr_continuous.shape}")
-        logger.info(f"X_train_categorical shape:{X_tr_categorical.shape}")
-        logger.info(f"Y_train shape:{y_tr.shape}")
-        logger.info(f"X_test_numerical shape:{X_val_continuous.shape}")
-        logger.info(f"X_test_categorical shape:{X_val_categorical.shape}")
-        logger.info(f"Y_test shape:{y_val.shape}")
+        logger.info("X_train_numerical shape:",X_tr_continuous.shape)
+        logger.info("X_train_categorical shape:",X_tr_categorical.shape)
+        logger.info("Y_train shape:",y_tr.shape)
+        logger.info("X_test_numerical shape:",X_val_continuous.shape)
+        logger.info("X_test_categorical shape:",X_val_categorical.shape)
+        logger.info("Y_test shape:",y_val.shape)
 
         logger.info(f"Creating Model - Fold{fold}")
-        #num_continuous_features, num_categorical_features, embedding_dims, num_labels, hidden_units, dropout_rates, learning_rate
         model = create_mlp(len(numerical_features), num_categorical_features, embedding_dims, 1, hidden_units, dropout_rates, learning_rate)
 
         rlr = ReduceLROnPlateau(monitor='val_mean_absolute_error', factor=0.1, patience=3, verbose=0, min_delta=1e-4, mode='min')
         ckp = ModelCheckpoint(ckp_path, monitor='val_mean_absolute_error', verbose=0, save_best_only=True, save_weights_only=True, mode='min')
-        #es = EarlyStopping(monitor='val_mean_absolute_error', min_delta=1e-4, patience=10, mode='min', restore_best_weights=True, verbose=0)
-        es = EarlyStopping(monitor='val_mean_absolute_error', min_delta=es_min_delta, patience=es_patience, mode='min', restore_best_weights=True, verbose=0)
+        es = EarlyStopping(monitor='val_mean_absolute_error', min_delta=1e-4, patience=10, mode='min', restore_best_weights=True, verbose=0)
 
         logger.info(f"Fitting Model - Fold{fold}")
         model.fit((X_tr_continuous,X_tr_categorical), y_tr,
@@ -756,7 +743,7 @@ if NN:
 
         score = mean_absolute_error(y_val, pred[te])
         scores.append(score)
-        logger.info(f"Fold {fold} MAE: {score}\t")
+        logger.info(f'Fold {fold} MAE:\t', score)
 
         # Finetune 3 epochs on validation set with small learning rate
         logger.info(f"Finetuning Model - Fold{fold}")
@@ -769,128 +756,9 @@ if NN:
         K.clear_session()
         del model
         gc.collect()
-        time_cost = time.time() - now_time
-        time_cost_list.append(time_cost)
-
-        logger.info(f"cost time {time_cost}")
     NN_score = np.mean(scores)
-    time_cost_all = sum(time_cost_list)
-    logger.info(f"Time cost all folds: {time_cost_all}")
-    logger.info(f"Average NN CV Scores: {np.mean(scores)}")
 
-
-if TabNet:
-    import numpy as np
-    from sklearn.metrics import mean_absolute_error
-    import gc
-    from sklearn.model_selection import KFold
-    from pytorch_tabnet.tab_model import TabNetClassifier, TabNetRegressor
-    from torch.nn import L1Loss
-    import torch
-    
-    df_train_feats = df_train_feats.groupby('stock_id').apply(lambda group: group.fillna(method='ffill')).fillna(0)
-    
-    categorical_features = ["stock_id"]
-    numerical_features = [column for column in list(df_train_feats) if column not in categorical_features]
-    num_categorical_features = [len(df_train_feats[col].unique()) for col in categorical_features]
-
-    nn_models = []
-
-    batch_size = 64
-    hidden_units = [128, 64, 128]
-    dropout_rates = [0.1,0.1,0.1,0.1]
-    #learning_rate = 1e-8
-    learning_rate = 1e-5
-    embedding_dims = [20]
-    epochs = 200
-    es_min_delta=1e-4
-    es_patience=40
-
-    logger.info(f"batch_size:{batch_size}")
-    logger.info(f"hidden_units:{hidden_units}")
-    logger.info(f"dropout_rates:{dropout_rates}")
-    logger.info(f"learning_rate:{learning_rate}")
-    logger.info(f"embedding_dims:{embedding_dims}")
-    logger.info(f"es_min_delta:{es_min_delta}")
-    logger.info(f"es_patience:{es_patience}")
-
-    directory = os.path.join(base_dir, model_name, graph_name + '_NN_Models')
-    if not os.path.exists(directory):
-        os.mkdir(directory)
-
-    pred = np.zeros(len(df_train['target']))
-    scores = []
-    gkf = PurgedGroupTimeSeriesSplit(n_splits = 5, group_gap = 5)
-    now_time = time.time()
-    time_cost_list = []
-
-    for fold, (tr, te) in enumerate(gkf.split(df_train_feats,df_train['target'],df_train['date_id'])):
-
-        #ckp_path = os.path.join(directory, f'nn_Fold_{fold+1}.h5')
-
-        X_tr_continuous = df_train_feats.iloc[tr][numerical_features].values
-        X_val_continuous = df_train_feats.iloc[te][numerical_features].values
-
-        X_tr_categorical = df_train_feats.iloc[tr][categorical_features].values
-        X_val_categorical = df_train_feats.iloc[te][categorical_features].values
-
-        y_tr, y_val = df_train['target'].iloc[tr].values, df_train['target'].iloc[te].values
-
-        logger.info(f"X_train_numerical shape:{X_tr_continuous.shape}")
-        logger.info(f"X_train_categorical shape:{X_tr_categorical.shape}")
-        logger.info(f"Y_train shape:{y_tr.shape}")
-        logger.info(f"X_val_numerical shape:{X_val_continuous.shape}")
-        logger.info(f"X_val_categorical shape:{X_val_categorical.shape}")
-        logger.info(f"Y_val shape:{y_val.shape}")
-
-        logger.info(f"Creating Model - Fold{fold}")
-        #num_continuous_features, num_categorical_features, embedding_dims, num_labels, hidden_units, dropout_rates, learning_rate
-        # model = create_mlp(len(numerical_features), num_categorical_features, embedding_dims, 1, hidden_units, dropout_rates, learning_rate)
-        device = torch.device('cuda:1')
-
-        model = TabNetRegressor(device_name=device)
-
-        #rlr = ReduceLROnPlateau(monitor='val_mean_absolute_error', factor=0.1, patience=3, verbose=0, min_delta=1e-4, mode='min')
-        #ckp = ModelCheckpoint(ckp_path, monitor='val_mean_absolute_error', verbose=0, save_best_only=True, save_weights_only=True, mode='min')
-        #es = EarlyStopping(monitor='val_mean_absolute_error', min_delta=1e-4, patience=10, mode='min', restore_best_weights=True, verbose=0)
-        #es = EarlyStopping(monitor='val_mean_absolute_error', min_delta=es_min_delta, patience=es_patience, mode='min', restore_best_weights=True, verbose=0)
-
-        logger.info(f"Fitting Model - Fold{fold}")
-        #model.fit((X_tr_continuous,X_tr_categorical), y_tr,
-        #          validation_data=([X_val_continuous,X_val_categorical], y_val),
-        #          epochs=200, batch_size=batch_size,callbacks=[ckp,es,rlr])
-        X_tr = np.concatenate((X_tr_continuous,X_tr_categorical), axis=1)
-        X_val = np.concatenate((X_val_continuous,X_val_categorical), axis=1)
-        y_tr = y_tr.reshape(-1, 1)
-        y_val = y_val.reshape(-1, 1)
-
-        logger.info(f"X_tr shape: {X_tr.shape}")
-        logger.info(f"X_val shape: {X_val.shape}")
-
-
-        model.fit(X_tr, y_tr,
-                 eval_set=[(X_val, y_val)],
-                 #eval_metric=['mae'], max_epochs=epochs, batch_size=batch_size, loss_fn=L1Loss)
-                 eval_metric=['mae'], max_epochs=epochs, batch_size=batch_size)
-
-        #output = model.predict((X_val_continuous,X_val_categorical), batch_size=batch_size * 4)
-        output = model.predict(X_val)
-
-        #pred[te] += model.predict((X_val_continuous,X_val_categorical), batch_size=batch_size * 4).ravel()
-        pred[te] += model.predict(X_val).ravel()
-
-        score = mean_absolute_error(y_val, pred[te])
-        scores.append(score)
-        logger.info(f"Fold {fold} MAE: {score}\t")
-
-        time_cost = time.time() - now_time
-        time_cost_list.append(time_cost)
-
-        logger.info(f"cost time {time_cost}")
-    NN_score = np.mean(scores)
-    time_cost_all = sum(time_cost_list)
-    logger.info(f"Time cost all folds: {time_cost_all}")
-    logger.info(f"Average CV Scores: {np.mean(scores)}")
+    logger.info("Average NN CV Scores:",np.mean(scores))
 
 ### evaluation on test set
 
@@ -939,11 +807,7 @@ results = {"is_offline": is_offline, "LGB": LGB, "NN": NN,
             "max_lookback": max_lookback, "split_day": split_day,
             "time_cost": time_cost_all,
             "Average NN CV Scores": NN_score, "LGB_average_mae": LGB_average_mae,
-            "lgb_params": lgb_params,
-            "batch_size": batch_size,
-            "hidden_units": hidden_units, "dropout_rates": dropout_rates, "learning_rate": learning_rate,
-            "embedding_dims": embedding_dims
-            }
+            "lgb_params": lgb_params}
 
 if not os.path.exists(results_dir):
     os.mkdir(results_dir)
