@@ -28,7 +28,7 @@ is_infer = True
 max_lookback = np.nan
 split_day = 435
 base_dir = '/home/joseph/Projects/Optiver---Trading-at-the-close'
-model_name = 'Feats164_91'
+model_name = 'Feats184'
 model_dir = 'Feats'
 log_dir = 'logs'
 results_dir = 'results'
@@ -288,10 +288,24 @@ def calculate_triplet_imbalance_numba(price, df):
 
 ### Feature Generation Functions
 
+def dfrank(newdf): # 添加基础排名因子
+    prices = ["reference_price", "far_price", "near_price", "ask_price", "bid_price", "wap"]
+    sizes = ["matched_size", "bid_size", "ask_size", "imbalance_size"]
+    columns=[column for column in newdf.columns if ((column in prices)or(column in sizes))]
+    for column in columns:
+        # 从小到大排名【测试下双排名有效果是因为加上了na_option='bottom'的处理机制还是因为实现的双排名方案】
+        newdf=pd.concat([newdf,(newdf[str(column)].rank(method="max", ascending=False,na_option='bottom')/len(newdf)).rename(f"{str(column)}_rank")], axis=1) # 从大到小排序
+        # 从大到小排名
+        newdf=pd.concat([newdf,(newdf[str(column)].rank(method="max", ascending=True,na_option='bottom')/len(newdf)).rename(f"{str(column)}_rerank")], axis=1) # 从大到小排序
+    return newdf
+
+
 def imbalance_features(df):
     # Define lists of price and size-related column names
     prices = ["reference_price", "far_price", "near_price", "ask_price", "bid_price", "wap"]
     sizes = ["matched_size", "bid_size", "ask_size", "imbalance_size"]
+
+    df = df.groupby(['date_id','seconds_in_bucket']).apply(dfrank) # 计算排名因子【之前得分最好的方案没有这个因子】
     
     df["volume"] = df.eval("ask_size + bid_size")
     df["mid_price"] = df.eval("(ask_price + bid_price) / 2")
@@ -768,7 +782,7 @@ if NN:
 ### Evaluation on Test Set
 # Load Test Data
 test_df = pd.read_csv("test.csv")  # Correct path to test.csv
-test_df = test_df.dropna(subset=["target"])
+#test_df = test_df.dropna(subset=["target"])
 test_df.reset_index(drop=True, inplace=True)
 
 # Generate Features for Test Data
