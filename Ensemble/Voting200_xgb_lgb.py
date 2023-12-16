@@ -13,6 +13,8 @@ import pandas as pd
 import datetime
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import KFold, TimeSeriesSplit
+from xgboost import XGBRegressor
+from lightgbm import LGBMRegressor
 import polars as pl
 import logging
 warnings.filterwarnings("ignore")
@@ -970,7 +972,7 @@ if VR:
         logger.info(f"Fold {i+1} Model Training")
 
         # Train a LightGBM & XGB model for the current fold
-        lgb_model = lgb.LGBMRegressor(**lgb_params), eval_metric="mae", eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)], callbacks = [lgb.callback.early_stopping(stopping_rounds = 100), lgb.callback.log_evaluation(period=100)]
+        lgb_model = MyLGBRegressor(**lgb_params, eval_metric="mae", eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)], callbacks = [lgb.callback.early_stopping(stopping_rounds = 100), lgb.callback.log_evaluation(period=100)])
         # lgb_model.fit(
         #     df_fold_train[feature_columns],
         #     df_fold_train_target,
@@ -985,7 +987,7 @@ if VR:
 
         # Train a LightGBM model for the current fold
         #xgb_model = MyXGBRegressor(eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)],**xgb_params)
-        xgb_model = XGBRegressor(**xgb_params, early_stopping_rounds=100, eval_metric="mae", eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)], verbose=True)
+        xgb_model = MyXGBRegressor(**xgb_params, early_stopping_rounds=100, eval_metric="mae", eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)], verbose=True)
 
         # xgb_model.fit(
         #     df_fold_train[feature_columns],

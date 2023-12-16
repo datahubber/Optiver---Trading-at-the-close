@@ -28,7 +28,7 @@ is_infer = True
 max_lookback = np.nan
 split_day = 435
 base_dir = '/home/joseph/Projects/Optiver---Trading-at-the-close'
-model_name = 'Feats164_91'
+model_name = 'Feats164'
 model_dir = 'Feats'
 log_dir = 'logs'
 results_dir = 'results'
@@ -396,9 +396,9 @@ def imbalance_features(df):
 
 def other_features(df):
     df["dow"] = df["date_id"] % 5  # Day of the week
-    df["dom"] = df["date_id"] % 21  # Day of the month
-    df["doq"] = df["date_id"] % 63  # Day of the quarter
-    df["doy"] = df["date_id"] % 252  # Day of the year
+    df["dom"] = df["date_id"] % 30  # Day of the week
+    df["doq"] = df["date_id"] % 90  # Day of the week
+    df["doy"] = df["date_id"] % 365  # Day of the week
     df["seconds"] = df["seconds_in_bucket"] % 60  
     df["minute"] = df["seconds_in_bucket"] // 60  
     df['time_to_market_close'] = 540 - df['seconds_in_bucket']
