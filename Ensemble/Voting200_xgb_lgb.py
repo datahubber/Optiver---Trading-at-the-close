@@ -836,32 +836,36 @@ if XGB:
 #logger.info(f"Time cost all folds: {str(datetime.timedelta(seconds=time_cost_all))}")
 
 
-# class MyXGBRegressor(XGBRegressor):
+
+
+
+class MyLGBRegressor(LGBMRegressor):
     
-#     def __init__(self, **params):
+    def __init__(self, **params):
         
-#         super().__init__(**params)
-#         self.eval_set = params['eval_set']
-    
-#     def fit(self, X, y):
-#         # output progress every 100 iterations
-#         super().fit(X,y, eval_set=self.eval_set, verbose=100) 
+        super().__init__(**params)
+        self.eval_set = params['eval_set']
+        self.eval_metric = params['mae']
+        self.callback = params['callback']
+
+    # lgb_model = lgb.LGBMRegressor(**lgb_params), eval_metric="mae", eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)], callbacks = [lgb.callback.early_stopping(stopping_rounds = 100), lgb.callback.log_evaluation(period=100)]
+    def fit(self, X, y):
+        # output progress every 100 iterations
+        super().fit(X,y, eval_set=self.eval_set, eval_metric=self.eval_metric, callback=self.callback)
 
 
-# class MyLGBRegressor(LGBMRegressor):
+class MyXGBRegressor(XGBRegressor):
     
-#     def __init__(self, **params):
+    def __init__(self, **params):
         
-#         super().__init__(**params)
-#         self.eval_set = params['eval_set']
-#         self.eval_metric = params['mae']
-#         self.early_stopping_rounds = params['early_stopping_rounds']
+        super().__init__(**params)
+        self.eval_set = params['eval_set']
+        self.eval_metric = params['mae']
+        self.early_stopping_rounds = params['early_stopping_rounds']
     
-#     def fit(self, X, y):
-#         # output progress every 100 iterations
-#         super().fit(X,y, eval_set=self.eval_set, verbose=100, 
-#             eval_metric=self.eval_metric, early_stopping_rounds=self.early_stopping_rounds)
-
+    def fit(self, X, y):
+        # output progress every 100 iterations
+        super().fit(X,y, eval_set=self.eval_set, eval_metric=self.eval_metric, early_stopping_rounds=self.early_stopping_rounds, verbose=100)
 
 ### VotingRegressor
 
@@ -871,6 +875,7 @@ if VR:
     from lightgbm import LGBMRegressor
     from sklearn.metrics import mean_absolute_error
     from sklearn.ensemble import VotingRegressor
+    import lightgbm as lgb
     import numpy as np
     import gc
 
@@ -965,7 +970,7 @@ if VR:
         logger.info(f"Fold {i+1} Model Training")
 
         # Train a LightGBM & XGB model for the current fold
-        lgb_model = lgb.LGBMRegressor(**lgb_params)
+        lgb_model = lgb.LGBMRegressor(**lgb_params), eval_metric="mae", eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)], callbacks = [lgb.callback.early_stopping(stopping_rounds = 100), lgb.callback.log_evaluation(period=100)]
         # lgb_model.fit(
         #     df_fold_train[feature_columns],
         #     df_fold_train_target,
@@ -976,21 +981,12 @@ if VR:
         #     ],
         # )
         
-        lgb_model.set_params(early_stopping_rounds=100, eval_metric="mae", eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)])
-
-        #xgb_model.fit(
-        #     df_fold_train[feature_columns],
-        #     df_fold_train_target,
-        #     eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)],
-        #     eval_metric='mae',
-        #     early_stopping_rounds=100,
-        #     verbose=True
-        # )
+        # lgb_model.set_params(early_stopping_rounds=100, eval_metric="mae", eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)], callbacks = [lightgbm.early_stopping(stopping_rounds = 20), lgb.callback.log_evaluation(period=100)])
 
         # Train a LightGBM model for the current fold
         #xgb_model = MyXGBRegressor(eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)],**xgb_params)
-        xgb_model = XGBRegressor(**xgb_params)
-        lgb_model.set_params(early_stopping_rounds=100, eval_metric="mae", eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)], verbose=True)
+        xgb_model = XGBRegressor(**xgb_params, early_stopping_rounds=100, eval_metric="mae", eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)], verbose=True)
+
         # xgb_model.fit(
         #     df_fold_train[feature_columns],
         #     df_fold_train_target,
