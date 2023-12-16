@@ -868,12 +868,11 @@ if XGB:
 if VR:
     import numpy as np
     from xgboost import XGBRegressor
-    from lightgdm import LGBMRegressor
+    from lightgbm import LGBMRegressor
     from sklearn.metrics import mean_absolute_error
     from sklearn.ensemble import VotingRegressor
     import numpy as np
     import gc
-    import lightgbm as lgb
 
     
     lgb_params = {
@@ -912,9 +911,7 @@ if VR:
         "reg_lambda": 1,
         "tree_method":'gpu_hist',
         "predictor":'gpu_predictor',
-        "gpu_id":1
-        "eval_metric" = 'mae'
-        "early_stopping_rounds" = params['early_stopping_rounds']
+        "gpu_id":1,
     }
 
 
@@ -1005,10 +1002,10 @@ if VR:
 
         # Create a Voting Regressor
         voting_regressor = VotingRegressor(estimators=[
-            ('xgb', xgb_regressor),
-            #('catboost', catboost_regressor),
-            ('lgbm', lgbm_regressor)
-        ], n_jobs=32, verbose=True, weights=regressor_weights)
+            ('xgb', xgb_model),
+            #('catboost', catboost_model),
+            ('lgb', lgb_model)
+        ], weights=regressor_weights)
 
         # Train the Voting Regressor on the training data
         voting_regressor.fit(df_fold_train[feature_columns], df_fold_train_target)
