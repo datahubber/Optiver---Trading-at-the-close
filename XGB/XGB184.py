@@ -76,6 +76,7 @@ logger = get_logger(os.path.join(base_dir, log_dir), "test", log_filename=graph_
 logger.info(f'is_offline {is_offline}')
 logger.info(f'LGB {LGB}')
 logger.info(f'NN {NN}')
+logger.info(f'XGB{XGB}')
 logger.info(f'model_name {model_name}')
 logger.info(f'is_train {is_train}')
 logger.info(f'is_infer {is_infer}')
@@ -645,10 +646,10 @@ if LGB:
         models.append(final_model)
         
         # Calculate and print the average MAE across all folds
-LGB_average_mae = np.mean(scores)
-time_cost_all = sum(time_cost_list)
-logger.info(f"Average MAE across all folds: {LGB_average_mae}")
-logger.info(f"Time cost all folds: {time_cost_all}")
+#LGB_average_mae = np.mean(scores)
+#time_cost_all = sum(time_cost_list)
+#logger.info(f"Average MAE across all folds: {LGB_average_mae}")
+#logger.info(f"Time cost all folds: {time_cost_all}")
 
 
 ### XGB
@@ -663,6 +664,7 @@ if XGB:
     xgb_params = {
         "objective": "reg:squarederror",
         "n_estimators": 10000,
+        #"n_estimators": 30,
         "random_state": 42,
         "subsample": 0.6,
         "colsample_bytree": 0.5,
@@ -671,15 +673,17 @@ if XGB:
         'max_depth': 11,
         #"n_jobs": 32,
         #"device": "gpu",
-        "verbosity": -1,
+        "verbosity": 3,
         #"reg_alpha": 0.1,
         "reg_alpha": 0.5,
         "reg_lambda": 1,
-        "tree_method":'gpu_hist'
+        "tree_method":'gpu_hist',
+        "predictor":'gpu_predictor',
+        "gpu_id":1
     }
 
 
-    logger.info(f"lgb_params: {lgb_params}")
+    logger.info(f"xgb_params: {xgb_params}")
 
     feature_columns = list(df_train_feats.columns)
     #print(f"Features = {len(feature_columns)}")
@@ -770,7 +774,8 @@ if XGB:
         gc.collect()
 
     # Calculate the average best iteration from all regular folds
-    average_best_iteration = int(np.mean([model.best_iteration_ for model in models]))
+    #average_best_iteration = int(np.mean([model.best_iteration_ for model in models]))
+    average_best_iteration = int(np.mean([model.best_iteration for model in models]))
     # Update the xgb_params with the average best iteration
     final_model_params = xgb_params.copy()
 
@@ -781,7 +786,7 @@ if XGB:
     num_model = 1
 
     for i in range(num_model):
-        final_model = lgb.XGBRegressor(**final_model_params)
+        final_model = XGBRegressor(**final_model_params)
         #final_model.fit(
         #    df_train_feats[feature_columns],
         #    df_train['target'],

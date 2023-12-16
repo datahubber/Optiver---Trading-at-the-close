@@ -21,15 +21,15 @@ simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
 
 is_offline = False
-LGB = False
-NN = True
+LGB = True
+NN = False
 is_train = True
-is_infer = False
+is_infer = True
 max_lookback = np.nan
 split_day = 435
 base_dir = '/home/joseph/Projects/Optiver---Trading-at-the-close'
-model_name = 'NNscale'
-model_dir = 'NN'
+model_name = 'LGB200'
+model_dir = 'Feats'
 log_dir = 'logs'
 results_dir = 'results'
 
@@ -38,6 +38,8 @@ results_dir = 'results'
 exp_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 graph_name = "%s_split%d_time%s" % \
                  (model_name, split_day, exp_time)
+
+
 
 # Utilities
 def weighted_average(a):
@@ -78,6 +80,7 @@ logger.info(f'is_train {is_train}')
 logger.info(f'is_infer {is_infer}')
 logger.info(f'max_lookback {max_lookback}')
 logger.info(f'split_day {split_day}')
+
 
 
 from sklearn.model_selection import KFold
@@ -213,7 +216,10 @@ class PurgedGroupTimeSeriesSplit(_BaseKFold):
 def reduce_mem_usage(df, verbose=0):
     start_mem = df.memory_usage().sum() / 1024**2
     for col in df.columns:
+        #print("col:", col)
+        #print("type", col_type)
         col_type = df[col].dtype
+        #col_type = df[col].dtypes
         if col_type != object:
             c_min = df[col].min()
             c_max = df[col].max()
@@ -288,7 +294,6 @@ def calculate_triplet_imbalance_numba(price, df):
 def dfrank(newdf): # 添加基础排名因子
     prices = ["reference_price", "far_price", "near_price", "ask_price", "bid_price", "wap"]
     sizes = ["matched_size", "bid_size", "ask_size", "imbalance_size"]
-
     columns=[column for column in newdf.columns if ((column in prices)or(column in sizes))]
     for column in columns:
         # 从小到大排名【测试下双排名有效果是因为加上了na_option='bottom'的处理机制还是因为实现的双排名方案】
@@ -303,9 +308,6 @@ def imbalance_features(df):
     prices = ["reference_price", "far_price", "near_price", "ask_price", "bid_price", "wap"]
     sizes = ["matched_size", "bid_size", "ask_size", "imbalance_size"]
 
-
-    df = df.groupby(['date_id','seconds_in_bucket']).apply(dfrank) # 计算排名因子【之前得分最好的方案没有这个因子】
-    
     df["volume"] = df.eval("ask_size + bid_size")
     df["mid_price"] = df.eval("(ask_price + bid_price) / 2")
     df["liquidity_imbalance"] = df.eval("(bid_size-ask_size)/(bid_size+ask_size)")
@@ -398,6 +400,40 @@ def imbalance_features(df):
     # Convert back to pandas if necessary
     df = pl_df.to_pandas()
     gc.collect()
+
+    # New Features
+    df = df.groupby(['date_id','seconds_in_bucket']).apply(dfrank) # 计算排名因子【之前得分最好的方案没有这个因子】
+    #匹配失败数量和匹配成功数量的比率
+    df['imbalance_ratio'] = df['imbalance_size'] / df['matched_size']
+    #供需市场的差额
+    df['bid_ask_volume_diff'] = df['ask_size'] - df['bid_size']
+    #供需市场总和
+    df['bid_plus_ask_sizes'] = df['bid_size'] + df['ask_size']
+    #供需价格的均值
+    df['mid_price'] = (df['ask_price'] + df['bid_price']) / 2
+    #整体数据情况
+    median_sizes = df.groupby('stock_id')['bid_size'].median() + df.groupby('stock_id')['ask_size'].median()
+    std_sizes = df.groupby('stock_id')['bid_size'].std() + df.groupby('stock_id')['ask_size'].std()
+    max_sizes = df.groupby('stock_id')['bid_size'].max() + df.groupby('stock_id')['ask_size'].max()
+    min_sizes = df.groupby('stock_id')['bid_size'].min() + df.groupby('stock_id')['ask_size'].min()
+    mean_sizes = df.groupby('stock_id')['bid_size'].mean() + df.groupby('stock_id')['ask_size'].mean()
+    first_sizes = df.groupby('stock_id')['bid_size'].first() + df.groupby('stock_id')['ask_size'].first()
+    last_sizes = df.groupby('stock_id')['bid_size'].last() + df.groupby('stock_id')['ask_size'].last()
+    df['median_size'] = df['stock_id'].map(median_sizes.to_dict())
+    df['std_size'] = df['stock_id'].map(std_sizes.to_dict())
+    df['max_size'] = df['stock_id'].map(max_sizes.to_dict())
+    df['min_size'] = df['stock_id'].map(min_sizes.to_dict())
+    df['mean_size'] = df['stock_id'].map(mean_sizes.to_dict())
+    df['first_size'] = df['stock_id'].map(first_sizes.to_dict())
+    df['last_size'] = df['stock_id'].map(last_sizes.to_dict())
+
+    # feats
+    df['mid_price*volume'] = df['mid_price_movement'] * df['volume']
+    df['harmonic_imbalance'] = df.eval('2 / ((1 / bid_size) + (1 / ask_size))')
+    df['spread_depth_ratio'] = (df['ask_price'] - df['bid_price']) / (df['bid_size'] + df['ask_size'])
+    df['mid_price_movement'] = df['mid_price'].diff(periods=5).apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
+    df['micro_price'] = ((df['bid_price'] * df['ask_size']) + (df['ask_price'] * df['bid_size'])) / (df['bid_size'] + df['ask_size'])
+    df['relative_spread'] = (df['ask_price'] - df['bid_price']) / df['wap']
     
     df['mid_price*volume'] = df['mid_price_movement'] * df['volume']
     df['harmonic_imbalance'] = df.eval('2 / ((1 / bid_size) + (1 / ask_size))')
@@ -412,7 +448,6 @@ def other_features(df):
     df["dom"] = df["date_id"] % 21  # Day of the month
     df["doq"] = df["date_id"] % 63  # Day of the quarter
     df["doy"] = df["date_id"] % 252  # Day of the year
-
     df["seconds"] = df["seconds_in_bucket"] % 60  
     df["minute"] = df["seconds_in_bucket"] // 60  
     df['time_to_market_close'] = 540 - df['seconds_in_bucket']
@@ -437,6 +472,7 @@ def generate_all_features(df):
     df = other_features(df)
     gc.collect()  
     feature_name = [i for i in df.columns if i not in ["row_id", "target", "time_id", "date_id"]]
+    logger.info(f"feats_length:{len(feature_name)}")
     
     return df[feature_name]
 
@@ -512,9 +548,11 @@ if LGB:
         'max_depth': 11,
         "n_jobs": 32,
         "device": "gpu",
+        "gpu_device_id":0,
         "verbosity": -1,
         "importance_type": "gain",
-        "reg_alpha": 0.1,
+        #"reg_alpha": 0.1,
+        "reg_alpha": 0.2,
         "reg_lambda": 3.25
     }
     logger.info(f"lgb_params: {lgb_params}")
@@ -642,12 +680,13 @@ if LGB:
         models.append(final_model)
         
         # Calculate and print the average MAE across all folds
-#LGB_average_mae = np.mean(scores)
-#time_cost_all = sum(time_cost_list)
-#logger.info(f"Average MAE across all folds: {LGB_average_mae}")
-#logger.info(f"Time cost all folds: {time_cost_all}")
+LGB_average_mae = np.mean(scores)
+time_cost_all = sum(time_cost_list)
+logger.info(f"Average MAE across all folds: {LGB_average_mae}")
+logger.info(f"Time cost all folds: {time_cost_all}")
 
 ## NN
+
 def create_mlp(num_continuous_features, num_categorical_features, embedding_dims, num_labels, hidden_units, dropout_rates, learning_rate,l2_strength=0.01):
 
     # Numerical variables input
@@ -686,25 +725,6 @@ def create_mlp(num_continuous_features, num_categorical_features, embedding_dims
                   metrics=['mean_absolute_error'])
     return model
 
-# scale
-def scale_x(df):
-    x_cols = [c for c in df.columns if c not in ['row_id', 'time_id', 'date_id', 'target']]
-    y_cols = ['target']
-    means = df[x_cols].mean(0)
-    stds = df[x_cols].std(0)
-    x = df[x_cols]
-    x = (x - means) / (stds+1e-8)
-    return x.values
-
-def scale_y(df):
-    y_cols = ['target']
-    means = df[y_cols].mean(0)
-    stds = df[y_cols].std(0)
-    y = df[y_cols]
-    y = (y - means) / (stds+1e-8)
-    return y.values
-
-
 if NN:
     import numpy as np
     from sklearn.metrics import mean_absolute_error
@@ -715,14 +735,8 @@ if NN:
     import tensorflow.keras.layers as layers
     from tensorflow.keras.regularizers import l2
     from tensorflow.keras.callbacks import Callback, ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
-
-    gpus = tf.config.list_physical_devices('GPU')
-    for gpu in gpus:
-        tf.config.experimental.set_memory_growth(gpu, True)
     
     df_train_feats = df_train_feats.groupby('stock_id').apply(lambda group: group.fillna(method='ffill')).fillna(0)
-    print(df_train_feats.shape)
-    exit()
     
     categorical_features = ["stock_id"]
     numerical_features = [column for column in list(df_train_feats) if column not in categorical_features]
@@ -731,40 +745,25 @@ if NN:
     nn_models = []
 
     batch_size = 64
-    hidden_units = [128, 64, 128]
-    dropout_rates = [0.1,0.1,0.1,0.1]
-    #learning_rate = 1e-8
+    hidden_units = [128,128]
+    dropout_rates = [0.1,0.1,0.1]
     learning_rate = 1e-5
     embedding_dims = [20]
-    es_min_delta=1e-4
-    es_patience=40
 
-    logger.info(f"batch_size:{batch_size}")
-    logger.info(f"hidden_units:{hidden_units}")
-    logger.info(f"dropout_rates:{dropout_rates}")
-    logger.info(f"learning_rate:{learning_rate}")
-    logger.info(f"embedding_dims:{embedding_dims}")
-    logger.info(f"es_min_delta:{es_min_delta}")
-    logger.info(f"es_patience:{es_patience}")
-
-    directory = os.path.join(base_dir, model_dir, graph_name + '_NN_Models')
+    directory = os.path.join(base_dir, model_dir, graph_name + 'NN_Models')
     if not os.path.exists(directory):
         os.mkdir(directory)
 
     pred = np.zeros(len(df_train['target']))
     scores = []
     gkf = PurgedGroupTimeSeriesSplit(n_splits = 5, group_gap = 5)
-    now_time = time.time()
-    time_cost_list = []
 
-    # divided into train & test
+
     for fold, (tr, te) in enumerate(gkf.split(df_train_feats,df_train['target'],df_train['date_id'])):
 
         ckp_path = os.path.join(directory, f'nn_Fold_{fold+1}.h5')
-        # add scale
-        X_tr_continuous = scale_x(df_train_feats.iloc[tr][numerical_features])
 
-        #X_tr_continuous = df_train_feats.iloc[tr][numerical_features].values
+        X_tr_continuous = df_train_feats.iloc[tr][numerical_features].values
         X_val_continuous = df_train_feats.iloc[te][numerical_features].values
 
         X_tr_categorical = df_train_feats.iloc[tr][categorical_features].values
@@ -772,21 +771,19 @@ if NN:
 
         y_tr, y_val = df_train['target'].iloc[tr].values, df_train['target'].iloc[te].values
 
-        logger.info(f"X_train_numerical shape:{X_tr_continuous.shape}")
-        logger.info(f"X_train_categorical shape:{X_tr_categorical.shape}")
-        logger.info(f"Y_train shape:{y_tr.shape}")
-        logger.info(f"X_test_numerical shape:{X_val_continuous.shape}")
-        logger.info(f"X_test_categorical shape:{X_val_categorical.shape}")
-        logger.info(f"Y_test shape:{y_val.shape}")
+        logger.info("X_train_numerical shape:",X_tr_continuous.shape)
+        logger.info("X_train_categorical shape:",X_tr_categorical.shape)
+        logger.info("Y_train shape:",y_tr.shape)
+        logger.info("X_test_numerical shape:",X_val_continuous.shape)
+        logger.info("X_test_categorical shape:",X_val_categorical.shape)
+        logger.info("Y_test shape:",y_val.shape)
 
         logger.info(f"Creating Model - Fold{fold}")
-        #num_continuous_features, num_categorical_features, embedding_dims, num_labels, hidden_units, dropout_rates, learning_rate
         model = create_mlp(len(numerical_features), num_categorical_features, embedding_dims, 1, hidden_units, dropout_rates, learning_rate)
 
         rlr = ReduceLROnPlateau(monitor='val_mean_absolute_error', factor=0.1, patience=3, verbose=0, min_delta=1e-4, mode='min')
         ckp = ModelCheckpoint(ckp_path, monitor='val_mean_absolute_error', verbose=0, save_best_only=True, save_weights_only=True, mode='min')
-        #es = EarlyStopping(monitor='val_mean_absolute_error', min_delta=1e-4, patience=10, mode='min', restore_best_weights=True, verbose=0)
-        es = EarlyStopping(monitor='val_mean_absolute_error', min_delta=es_min_delta, patience=es_patience, mode='min', restore_best_weights=True, verbose=0)
+        es = EarlyStopping(monitor='val_mean_absolute_error', min_delta=1e-4, patience=10, mode='min', restore_best_weights=True, verbose=0)
 
         logger.info(f"Fitting Model - Fold{fold}")
         model.fit((X_tr_continuous,X_tr_categorical), y_tr,
@@ -799,7 +796,7 @@ if NN:
 
         score = mean_absolute_error(y_val, pred[te])
         scores.append(score)
-        logger.info(f"Fold {fold} MAE: {score}\t")
+        logger.info(f'Fold {fold} MAE:\t', score)
 
         # Finetune 3 epochs on validation set with small learning rate
         logger.info(f"Finetuning Model - Fold{fold}")
@@ -812,14 +809,9 @@ if NN:
         K.clear_session()
         del model
         gc.collect()
-        time_cost = time.time() - now_time
-        time_cost_list.append(time_cost)
-
-        logger.info(f"cost time {time_cost}")
     NN_score = np.mean(scores)
-    time_cost_all = sum(time_cost_list)
-    logger.info(f"Time cost all folds: {time_cost_all}")
-    logger.info(f"Average NN CV Scores: {np.mean(scores)}")
+
+    logger.info("Average NN CV Scores:",np.mean(scores))
 
 ### evaluation on test set
 
@@ -867,12 +859,8 @@ results = {"is_offline": is_offline, "LGB": LGB, "NN": NN,
             "is_train": is_train, "is_infer": is_infer, 
             "max_lookback": max_lookback, "split_day": split_day,
             "time_cost": time_cost_all,
-            "Average NN CV Scores": NN_score,
-            "lgb_params": lgb_params,
-            "batch_size": batch_size,
-            "hidden_units": hidden_units, "dropout_rates": dropout_rates, "learning_rate": learning_rate,
-            "embedding_dims": embedding_dims
-            }
+            "Average NN CV Scores": NN_score, "LGB_average_mae": LGB_average_mae,
+            "lgb_params": lgb_params}
 
 if not os.path.exists(results_dir):
     os.mkdir(results_dir)
@@ -885,3 +873,5 @@ with open(results_dir + "/{}.json".format(graph_name), 'w') as fout:
 if __name__ == '__main__':
     # set logger
     pass
+
+

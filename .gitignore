@@ -11,6 +11,7 @@ Feats162/Feats162_split*
 Feats164/Feats164_split*
 Feats164/Feats162_split*
 Feats/*_split*
+XGB/*_split*
 Ensemble162/Ensemble162_split*
 LGB/LGB_split*
 train.csv

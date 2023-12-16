@@ -22,14 +22,15 @@ simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
 is_offline = False
 LGB = False
-NN = True
+XGB = True
+NN = False
 is_train = True
-is_infer = False
+is_infer = True
 max_lookback = np.nan
 split_day = 435
 base_dir = '/home/joseph/Projects/Optiver---Trading-at-the-close'
-model_name = 'NNscale'
-model_dir = 'NN'
+model_name = 'XGB200'
+model_dir = 'XGB'
 log_dir = 'logs'
 results_dir = 'results'
 
@@ -38,6 +39,8 @@ results_dir = 'results'
 exp_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 graph_name = "%s_split%d_time%s" % \
                  (model_name, split_day, exp_time)
+
+
 
 # Utilities
 def weighted_average(a):
@@ -73,11 +76,13 @@ logger = get_logger(os.path.join(base_dir, log_dir), "test", log_filename=graph_
 logger.info(f'is_offline {is_offline}')
 logger.info(f'LGB {LGB}')
 logger.info(f'NN {NN}')
+logger.info(f'XGB{XGB}')
 logger.info(f'model_name {model_name}')
 logger.info(f'is_train {is_train}')
 logger.info(f'is_infer {is_infer}')
 logger.info(f'max_lookback {max_lookback}')
 logger.info(f'split_day {split_day}')
+
 
 
 from sklearn.model_selection import KFold
@@ -288,7 +293,6 @@ def calculate_triplet_imbalance_numba(price, df):
 def dfrank(newdf): # 添加基础排名因子
     prices = ["reference_price", "far_price", "near_price", "ask_price", "bid_price", "wap"]
     sizes = ["matched_size", "bid_size", "ask_size", "imbalance_size"]
-
     columns=[column for column in newdf.columns if ((column in prices)or(column in sizes))]
     for column in columns:
         # 从小到大排名【测试下双排名有效果是因为加上了na_option='bottom'的处理机制还是因为实现的双排名方案】
@@ -303,8 +307,7 @@ def imbalance_features(df):
     prices = ["reference_price", "far_price", "near_price", "ask_price", "bid_price", "wap"]
     sizes = ["matched_size", "bid_size", "ask_size", "imbalance_size"]
 
-
-    df = df.groupby(['date_id','seconds_in_bucket']).apply(dfrank) # 计算排名因子【之前得分最好的方案没有这个因子】
+    #df = df.groupby(['date_id','seconds_in_bucket']).apply(dfrank) # 计算排名因子【之前得分最好的方案没有这个因子】
     
     df["volume"] = df.eval("ask_size + bid_size")
     df["mid_price"] = df.eval("(ask_price + bid_price) / 2")
@@ -398,6 +401,32 @@ def imbalance_features(df):
     # Convert back to pandas if necessary
     df = pl_df.to_pandas()
     gc.collect()
+
+    # New Features
+    df = df.groupby(['date_id','seconds_in_bucket']).apply(dfrank) # 计算排名因子【之前得分最好的方案没有这个因子】
+    #匹配失败数量和匹配成功数量的比率
+    df['imbalance_ratio'] = df['imbalance_size'] / df['matched_size']
+    #供需市场的差额
+    df['bid_ask_volume_diff'] = df['ask_size'] - df['bid_size']
+    #供需市场总和
+    df['bid_plus_ask_sizes'] = df['bid_size'] + df['ask_size']
+    #供需价格的均值
+    df['mid_price'] = (df['ask_price'] + df['bid_price']) / 2
+    #整体数据情况
+    median_sizes = df.groupby('stock_id')['bid_size'].median() + df.groupby('stock_id')['ask_size'].median()
+    std_sizes = df.groupby('stock_id')['bid_size'].std() + df.groupby('stock_id')['ask_size'].std()
+    max_sizes = df.groupby('stock_id')['bid_size'].max() + df.groupby('stock_id')['ask_size'].max()
+    min_sizes = df.groupby('stock_id')['bid_size'].min() + df.groupby('stock_id')['ask_size'].min()
+    mean_sizes = df.groupby('stock_id')['bid_size'].mean() + df.groupby('stock_id')['ask_size'].mean()
+    first_sizes = df.groupby('stock_id')['bid_size'].first() + df.groupby('stock_id')['ask_size'].first()
+    last_sizes = df.groupby('stock_id')['bid_size'].last() + df.groupby('stock_id')['ask_size'].last()
+    df['median_size'] = df['stock_id'].map(median_sizes.to_dict())
+    df['std_size'] = df['stock_id'].map(std_sizes.to_dict())
+    df['max_size'] = df['stock_id'].map(max_sizes.to_dict())
+    df['min_size'] = df['stock_id'].map(min_sizes.to_dict())
+    df['mean_size'] = df['stock_id'].map(mean_sizes.to_dict())
+    df['first_size'] = df['stock_id'].map(first_sizes.to_dict())
+    df['last_size'] = df['stock_id'].map(last_sizes.to_dict())
     
     df['mid_price*volume'] = df['mid_price_movement'] * df['volume']
     df['harmonic_imbalance'] = df.eval('2 / ((1 / bid_size) + (1 / ask_size))')
@@ -412,7 +441,6 @@ def other_features(df):
     df["dom"] = df["date_id"] % 21  # Day of the month
     df["doq"] = df["date_id"] % 63  # Day of the quarter
     df["doy"] = df["date_id"] % 252  # Day of the year
-
     df["seconds"] = df["seconds_in_bucket"] % 60  
     df["minute"] = df["seconds_in_bucket"] // 60  
     df['time_to_market_close'] = 540 - df['seconds_in_bucket']
@@ -437,6 +465,7 @@ def generate_all_features(df):
     df = other_features(df)
     gc.collect()  
     feature_name = [i for i in df.columns if i not in ["row_id", "target", "time_id", "date_id"]]
+    logger.info(f"feats_length:{len(feature_name)}")
     
     return df[feature_name]
 
@@ -514,7 +543,8 @@ if LGB:
         "device": "gpu",
         "verbosity": -1,
         "importance_type": "gain",
-        "reg_alpha": 0.1,
+        #"reg_alpha": 0.1,
+        "reg_alpha": 0.2,
         "reg_lambda": 3.25
     }
     logger.info(f"lgb_params: {lgb_params}")
@@ -647,7 +677,165 @@ if LGB:
 #logger.info(f"Average MAE across all folds: {LGB_average_mae}")
 #logger.info(f"Time cost all folds: {time_cost_all}")
 
+
+### XGB
+
+if XGB:
+    import numpy as np
+    from xgboost import XGBRegressor
+    from sklearn.metrics import mean_absolute_error
+    import numpy as np
+    import gc
+    
+    xgb_params = {
+        "objective": "reg:squarederror",
+        "n_estimators": 10000,
+        #"n_estimators": 30,
+        "random_state": 42,
+        "subsample": 0.6,
+        "colsample_bytree": 0.5,
+        #"learning_rate": 0.00971,
+        "learning_rate": 0.01,
+        'max_depth': 11,
+        #"n_jobs": 32,
+        #"device": "gpu",
+        "verbosity": 3,
+        #"reg_alpha": 0.1,
+        "reg_alpha": 0.5,
+        "reg_lambda": 1,
+        "tree_method":'gpu_hist',
+        "predictor":'gpu_predictor',
+        "gpu_id":1
+    }
+
+
+    logger.info(f"xgb_params: {xgb_params}")
+
+    feature_columns = list(df_train_feats.columns)
+    #print(f"Features = {len(feature_columns)}")
+    logger.info(f"Features = {len(feature_columns)}")
+    #print(f"Feature length = {len(feature_columns)}")
+
+    num_folds = 5
+    fold_size = 480 // num_folds
+    gap = 5
+
+    models = []
+    models_cbt = []
+    scores = []
+
+
+    model_save_path = os.path.join(base_dir, model_dir, graph_name + '_modelitos_para_despues')
+    logger.info(f"model_save_path {model_save_path}")
+
+    if not os.path.exists(model_save_path):
+        os.makedirs(model_save_path)
+
+    date_ids = df_train['date_id'].values
+
+    
+    time_cost_list = []
+
+    for i in range(num_folds):
+        now_time = time.time()
+        start = i * fold_size
+        end = start + fold_size
+        if i < num_folds - 1:  # No need to purge after the last fold
+            purged_start = end - 2
+            purged_end = end + gap + 2
+            train_indices = (date_ids >= start) & (date_ids < purged_start) | (date_ids > purged_end)
+        else:
+            train_indices = (date_ids >= start) & (date_ids < end)
+
+        test_indices = (date_ids >= end) & (date_ids < end + fold_size)
+        
+        gc.collect()
+        
+        df_fold_train = df_train_feats[train_indices]
+        df_fold_train_target = df_train['target'][train_indices]
+        df_fold_valid = df_train_feats[test_indices]
+        df_fold_valid_target = df_train['target'][test_indices]
+
+        logger.info(f"Fold {i+1} Model Training")
+
+        # Train a LightGBM model for the current fold
+        xgb_model = XGBRegressor(**xgb_params)
+        xgb_model.fit(
+            df_fold_train[feature_columns],
+            df_fold_train_target,
+            eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)],
+            eval_metric='mae',
+            early_stopping_rounds=100,
+            verbose=True
+        )
+    
+        time_cost = time.time() - now_time
+        time_cost_list.append(time_cost)
+
+        #logger.info(f"cost time {time_cost}")
+        logger.info(f"cost time {str(datetime.timedelta(seconds=time_cost))}")
+
+        models.append(xgb_model)
+        # Save the model to a file
+        model_filename = os.path.join(model_save_path, f'doblez_{i+1}.txt')
+
+        xgb_model.save_model(model_filename)
+        logger.info(f"Model for fold {i+1} saved to {model_filename}")
+
+        # Evaluate model performance on the validation set
+        #------------LGB--------------#
+        # fold_predictions = lgb_model.predict(df_fold_valid[feature_columns])
+        # fold_score = mean_absolute_error(fold_predictions, df_fold_valid_target)
+        # scores.append(fold_score)
+        # logger.info(f":LGB Fold {i+1} MAE: {fold_score}")
+
+        #------------XGB--------------#
+        fold_predictions = xgb_model.predict(df_fold_valid[feature_columns])
+        fold_score = mean_absolute_error(fold_predictions, df_fold_valid_target)
+        scores.append(fold_score)
+        logger.info(f":XGB Fold {i+1} MAE: {fold_score}")
+
+        # Free up memory by deleting fold specific variables
+        del df_fold_train, df_fold_train_target, df_fold_valid, df_fold_valid_target
+        gc.collect()
+
+    # Calculate the average best iteration from all regular folds
+    #average_best_iteration = int(np.mean([model.best_iteration_ for model in models]))
+    average_best_iteration = int(np.mean([model.best_iteration for model in models]))
+    # Update the xgb_params with the average best iteration
+    final_model_params = xgb_params.copy()
+
+    # final_model_params['n_estimators'] = average_best_iteration
+    # print(f"Training final model with average best iteration: {average_best_iteration}")
+
+    # Train the final model on the entire dataset
+    num_model = 1
+
+    for i in range(num_model):
+        final_model = XGBRegressor(**final_model_params)
+        #final_model.fit(
+        #    df_train_feats[feature_columns],
+        #    df_train['target'],
+        #    callbacks=[
+        #        lgb.callback.log_evaluation(period=100),
+        #    ],
+        #)
+        final_model.fit(
+            df_train_feats[feature_columns],
+            df_train['target'],
+            eval_metric='mae',
+        )
+        # Append the final model to the list of models
+        models.append(final_model)
+        
+        # Calculate and print the average MAE across all folds
+XGB_average_mae = np.mean(scores)
+time_cost_all = sum(time_cost_list)
+logger.info(f"Average MAE across all folds: {XGB_average_mae}")
+logger.info(f"Time cost all folds: {str(datetime.timedelta(seconds=time_cost_all))}")
+
 ## NN
+
 def create_mlp(num_continuous_features, num_categorical_features, embedding_dims, num_labels, hidden_units, dropout_rates, learning_rate,l2_strength=0.01):
 
     # Numerical variables input
@@ -686,25 +874,6 @@ def create_mlp(num_continuous_features, num_categorical_features, embedding_dims
                   metrics=['mean_absolute_error'])
     return model
 
-# scale
-def scale_x(df):
-    x_cols = [c for c in df.columns if c not in ['row_id', 'time_id', 'date_id', 'target']]
-    y_cols = ['target']
-    means = df[x_cols].mean(0)
-    stds = df[x_cols].std(0)
-    x = df[x_cols]
-    x = (x - means) / (stds+1e-8)
-    return x.values
-
-def scale_y(df):
-    y_cols = ['target']
-    means = df[y_cols].mean(0)
-    stds = df[y_cols].std(0)
-    y = df[y_cols]
-    y = (y - means) / (stds+1e-8)
-    return y.values
-
-
 if NN:
     import numpy as np
     from sklearn.metrics import mean_absolute_error
@@ -715,14 +884,8 @@ if NN:
     import tensorflow.keras.layers as layers
     from tensorflow.keras.regularizers import l2
     from tensorflow.keras.callbacks import Callback, ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
-
-    gpus = tf.config.list_physical_devices('GPU')
-    for gpu in gpus:
-        tf.config.experimental.set_memory_growth(gpu, True)
     
     df_train_feats = df_train_feats.groupby('stock_id').apply(lambda group: group.fillna(method='ffill')).fillna(0)
-    print(df_train_feats.shape)
-    exit()
     
     categorical_features = ["stock_id"]
     numerical_features = [column for column in list(df_train_feats) if column not in categorical_features]
@@ -731,40 +894,25 @@ if NN:
     nn_models = []
 
     batch_size = 64
-    hidden_units = [128, 64, 128]
-    dropout_rates = [0.1,0.1,0.1,0.1]
-    #learning_rate = 1e-8
+    hidden_units = [128,128]
+    dropout_rates = [0.1,0.1,0.1]
     learning_rate = 1e-5
     embedding_dims = [20]
-    es_min_delta=1e-4
-    es_patience=40
 
-    logger.info(f"batch_size:{batch_size}")
-    logger.info(f"hidden_units:{hidden_units}")
-    logger.info(f"dropout_rates:{dropout_rates}")
-    logger.info(f"learning_rate:{learning_rate}")
-    logger.info(f"embedding_dims:{embedding_dims}")
-    logger.info(f"es_min_delta:{es_min_delta}")
-    logger.info(f"es_patience:{es_patience}")
-
-    directory = os.path.join(base_dir, model_dir, graph_name + '_NN_Models')
+    directory = os.path.join(base_dir, model_dir, graph_name + 'NN_Models')
     if not os.path.exists(directory):
         os.mkdir(directory)
 
     pred = np.zeros(len(df_train['target']))
     scores = []
     gkf = PurgedGroupTimeSeriesSplit(n_splits = 5, group_gap = 5)
-    now_time = time.time()
-    time_cost_list = []
 
-    # divided into train & test
+
     for fold, (tr, te) in enumerate(gkf.split(df_train_feats,df_train['target'],df_train['date_id'])):
 
         ckp_path = os.path.join(directory, f'nn_Fold_{fold+1}.h5')
-        # add scale
-        X_tr_continuous = scale_x(df_train_feats.iloc[tr][numerical_features])
 
-        #X_tr_continuous = df_train_feats.iloc[tr][numerical_features].values
+        X_tr_continuous = df_train_feats.iloc[tr][numerical_features].values
         X_val_continuous = df_train_feats.iloc[te][numerical_features].values
 
         X_tr_categorical = df_train_feats.iloc[tr][categorical_features].values
@@ -772,21 +920,19 @@ if NN:
 
         y_tr, y_val = df_train['target'].iloc[tr].values, df_train['target'].iloc[te].values
 
-        logger.info(f"X_train_numerical shape:{X_tr_continuous.shape}")
-        logger.info(f"X_train_categorical shape:{X_tr_categorical.shape}")
-        logger.info(f"Y_train shape:{y_tr.shape}")
-        logger.info(f"X_test_numerical shape:{X_val_continuous.shape}")
-        logger.info(f"X_test_categorical shape:{X_val_categorical.shape}")
-        logger.info(f"Y_test shape:{y_val.shape}")
+        logger.info("X_train_numerical shape:",X_tr_continuous.shape)
+        logger.info("X_train_categorical shape:",X_tr_categorical.shape)
+        logger.info("Y_train shape:",y_tr.shape)
+        logger.info("X_test_numerical shape:",X_val_continuous.shape)
+        logger.info("X_test_categorical shape:",X_val_categorical.shape)
+        logger.info("Y_test shape:",y_val.shape)
 
         logger.info(f"Creating Model - Fold{fold}")
-        #num_continuous_features, num_categorical_features, embedding_dims, num_labels, hidden_units, dropout_rates, learning_rate
         model = create_mlp(len(numerical_features), num_categorical_features, embedding_dims, 1, hidden_units, dropout_rates, learning_rate)
 
         rlr = ReduceLROnPlateau(monitor='val_mean_absolute_error', factor=0.1, patience=3, verbose=0, min_delta=1e-4, mode='min')
         ckp = ModelCheckpoint(ckp_path, monitor='val_mean_absolute_error', verbose=0, save_best_only=True, save_weights_only=True, mode='min')
-        #es = EarlyStopping(monitor='val_mean_absolute_error', min_delta=1e-4, patience=10, mode='min', restore_best_weights=True, verbose=0)
-        es = EarlyStopping(monitor='val_mean_absolute_error', min_delta=es_min_delta, patience=es_patience, mode='min', restore_best_weights=True, verbose=0)
+        es = EarlyStopping(monitor='val_mean_absolute_error', min_delta=1e-4, patience=10, mode='min', restore_best_weights=True, verbose=0)
 
         logger.info(f"Fitting Model - Fold{fold}")
         model.fit((X_tr_continuous,X_tr_categorical), y_tr,
@@ -799,7 +945,7 @@ if NN:
 
         score = mean_absolute_error(y_val, pred[te])
         scores.append(score)
-        logger.info(f"Fold {fold} MAE: {score}\t")
+        logger.info(f'Fold {fold} MAE:\t', score)
 
         # Finetune 3 epochs on validation set with small learning rate
         logger.info(f"Finetuning Model - Fold{fold}")
@@ -812,14 +958,9 @@ if NN:
         K.clear_session()
         del model
         gc.collect()
-        time_cost = time.time() - now_time
-        time_cost_list.append(time_cost)
-
-        logger.info(f"cost time {time_cost}")
     NN_score = np.mean(scores)
-    time_cost_all = sum(time_cost_list)
-    logger.info(f"Time cost all folds: {time_cost_all}")
-    logger.info(f"Average NN CV Scores: {np.mean(scores)}")
+
+    logger.info("Average NN CV Scores:",np.mean(scores))
 
 ### evaluation on test set
 
@@ -867,12 +1008,8 @@ results = {"is_offline": is_offline, "LGB": LGB, "NN": NN,
             "is_train": is_train, "is_infer": is_infer, 
             "max_lookback": max_lookback, "split_day": split_day,
             "time_cost": time_cost_all,
-            "Average NN CV Scores": NN_score,
-            "lgb_params": lgb_params,
-            "batch_size": batch_size,
-            "hidden_units": hidden_units, "dropout_rates": dropout_rates, "learning_rate": learning_rate,
-            "embedding_dims": embedding_dims
-            }
+            "Average NN CV Scores": NN_score, "LGB_average_mae": LGB_average_mae,
+            "lgb_params": lgb_params}
 
 if not os.path.exists(results_dir):
     os.mkdir(results_dir)
@@ -885,3 +1022,5 @@ with open(results_dir + "/{}.json".format(graph_name), 'w') as fout:
 if __name__ == '__main__':
     # set logger
     pass
+
+

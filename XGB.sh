@@ -4,7 +4,7 @@ TIME_HOME="/home/joseph/Projects/Optiver---Trading-at-the-close"
 TF_HOME="/home/joseph/anaconda3/envs/kaggle/bin"
 TIME_NOW=`date +"%Y-%m-%d_%H-%M-%S"`
 
-MODEL_NAME=LGB200
+MODEL_NAME=XGB200
 
 #${TF_HOME}/python -u ${TIME_HOME}/LGB/LGB.py
 
@@ -12,6 +12,6 @@ MODEL_NAME=LGB200
 #nohup ${TF_HOME}/python -u ${TIME_HOME}/Feats/Feats.py  > ${TIME_HOME}/bash_logs/Feats_${TIME_NOW}.log 2>&1 &
 #nohup ${TF_HOME}/python -u ${TIME_HOME}/Feats161/Feats161.py  > Feats161.log 2>&1 &
 
-nohup ${TF_HOME}/python -u ${TIME_HOME}/Feats/${MODEL_NAME}.py  > ${TIME_HOME}/bash_logs/${MODEL_NAME}_${TIME_NOW}.log 2>&1 &
+nohup ${TF_HOME}/python -u ${TIME_HOME}/XGB/${MODEL_NAME}.py  > ${TIME_HOME}/bash_logs/${MODEL_NAME}_${TIME_NOW}.log 2>&1 &
 
 

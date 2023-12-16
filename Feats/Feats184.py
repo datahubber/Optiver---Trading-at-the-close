@@ -238,6 +238,7 @@ def reduce_mem_usage(df, verbose=0):
                     df[col] = df[col].astype(np.float32)
                 else:
                     df[col] = df[col].astype(np.float32)
+        exit()
     if verbose:
         logger.info(f"Memory usage of dataframe is {start_mem:.2f} MB")
         end_mem = df.memory_usage().sum() / 1024**2
