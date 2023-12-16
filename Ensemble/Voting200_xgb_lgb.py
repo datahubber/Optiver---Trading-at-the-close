@@ -21,19 +21,21 @@ simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
 
 is_offline = False
-LGB = True
+LGB = False
+XGB = False
 NN = False
+VR = True
 is_train = True
 is_infer = True
 max_lookback = np.nan
 split_day = 435
 base_dir = '/home/joseph/Projects/Optiver---Trading-at-the-close'
-model_name = 'LGB200'
-model_dir = 'Feats'
+model_name = 'VR200'
+model_dir = 'Ensemble'
 log_dir = 'logs'
 results_dir = 'results'
-
-
+# emsemble weights
+regressor_weights = [1, 1]
 
 exp_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 graph_name = "%s_split%d_time%s" % \
@@ -75,12 +77,13 @@ logger = get_logger(os.path.join(base_dir, log_dir), "test", log_filename=graph_
 logger.info(f'is_offline {is_offline}')
 logger.info(f'LGB {LGB}')
 logger.info(f'NN {NN}')
+logger.info(f'XGB{XGB}')
+logger.info(f'VR{VR}')
 logger.info(f'model_name {model_name}')
 logger.info(f'is_train {is_train}')
 logger.info(f'is_infer {is_infer}')
 logger.info(f'max_lookback {max_lookback}')
 logger.info(f'split_day {split_day}')
-
 
 
 from sklearn.model_selection import KFold
@@ -216,10 +219,7 @@ class PurgedGroupTimeSeriesSplit(_BaseKFold):
 def reduce_mem_usage(df, verbose=0):
     start_mem = df.memory_usage().sum() / 1024**2
     for col in df.columns:
-        #print("col:", col)
-        #print("type", col_type)
         col_type = df[col].dtype
-        #col_type = df[col].dtypes
         if col_type != object:
             c_min = df[col].min()
             c_max = df[col].max()
@@ -308,6 +308,8 @@ def imbalance_features(df):
     prices = ["reference_price", "far_price", "near_price", "ask_price", "bid_price", "wap"]
     sizes = ["matched_size", "bid_size", "ask_size", "imbalance_size"]
 
+    #df = df.groupby(['date_id','seconds_in_bucket']).apply(dfrank) # 计算排名因子【之前得分最好的方案没有这个因子】
+    
     df["volume"] = df.eval("ask_size + bid_size")
     df["mid_price"] = df.eval("(ask_price + bid_price) / 2")
     df["liquidity_imbalance"] = df.eval("(bid_size-ask_size)/(bid_size+ask_size)")
@@ -426,14 +428,6 @@ def imbalance_features(df):
     df['mean_size'] = df['stock_id'].map(mean_sizes.to_dict())
     df['first_size'] = df['stock_id'].map(first_sizes.to_dict())
     df['last_size'] = df['stock_id'].map(last_sizes.to_dict())
-
-    # feats
-    df['mid_price*volume'] = df['mid_price_movement'] * df['volume']
-    df['harmonic_imbalance'] = df.eval('2 / ((1 / bid_size) + (1 / ask_size))')
-    df['spread_depth_ratio'] = (df['ask_price'] - df['bid_price']) / (df['bid_size'] + df['ask_size'])
-    df['mid_price_movement'] = df['mid_price'].diff(periods=5).apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
-    df['micro_price'] = ((df['bid_price'] * df['ask_size']) + (df['ask_price'] * df['bid_size'])) / (df['bid_size'] + df['ask_size'])
-    df['relative_spread'] = (df['ask_price'] - df['bid_price']) / df['wap']
     
     df['mid_price*volume'] = df['mid_price_movement'] * df['volume']
     df['harmonic_imbalance'] = df.eval('2 / ((1 / bid_size) + (1 / ask_size))')
@@ -448,8 +442,8 @@ def other_features(df):
     df["dom"] = df["date_id"] % 21  # Day of the month
     df["doq"] = df["date_id"] % 63  # Day of the quarter
     df["doy"] = df["date_id"] % 252  # Day of the year
-    df["seconds"] = df["seconds_in_bucket"] % 60  
-    df["minute"] = df["seconds_in_bucket"] // 60  
+    df["seconds"] = df["seconds_in_bucket"] % 60
+    df["minute"] = df["seconds_in_bucket"] // 60
     df['time_to_market_close'] = 540 - df['seconds_in_bucket']
 
     # new feature
@@ -548,7 +542,6 @@ if LGB:
         'max_depth': 11,
         "n_jobs": 32,
         "device": "gpu",
-        "gpu_device_id":0,
         "verbosity": -1,
         "importance_type": "gain",
         #"reg_alpha": 0.1,
@@ -631,7 +624,7 @@ if LGB:
         time_cost = time.time() - now_time
         time_cost_list.append(time_cost)
 
-        logger.info(f"cost time {str(datetime.timedelta(seconds=time_cost))}")
+        logger.info(f"cost time {time_cost}")
 
         models.append(lgb_model)
         # Save the model to a file
@@ -680,9 +673,410 @@ if LGB:
         models.append(final_model)
         
         # Calculate and print the average MAE across all folds
-LGB_average_mae = np.mean(scores)
+#LGB_average_mae = np.mean(scores)
+#time_cost_all = sum(time_cost_list)
+#logger.info(f"Average MAE across all folds: {LGB_average_mae}")
+#logger.info(f"Time cost all folds: {time_cost_all}")
+
+
+### XGB
+
+if XGB:
+    import numpy as np
+    from xgboost import XGBRegressor
+    from sklearn.metrics import mean_absolute_error
+    import numpy as np
+    import gc
+    
+    xgb_params = {
+        "objective": "reg:squarederror",
+        "n_estimators": 10000,
+        #"n_estimators": 30,
+        "random_state": 42,
+        "subsample": 0.6,
+        "colsample_bytree": 0.5,
+        #"learning_rate": 0.00971,
+        "learning_rate": 0.01,
+        'max_depth': 11,
+        #"n_jobs": 32,
+        #"device": "gpu",
+        "verbosity": 3,
+        #"reg_alpha": 0.1,
+        "reg_alpha": 0.5,
+        "reg_lambda": 1,
+        "tree_method":'gpu_hist',
+        "predictor":'gpu_predictor',
+        "gpu_id":1
+    }
+
+
+    logger.info(f"xgb_params: {xgb_params}")
+
+    feature_columns = list(df_train_feats.columns)
+    #print(f"Features = {len(feature_columns)}")
+    logger.info(f"Features = {len(feature_columns)}")
+    #print(f"Feature length = {len(feature_columns)}")
+
+    num_folds = 5
+    fold_size = 480 // num_folds
+    gap = 5
+
+    models = []
+    models_cbt = []
+    scores = []
+
+
+    model_save_path = os.path.join(base_dir, model_dir, graph_name + '_modelitos_para_despues')
+    logger.info(f"model_save_path {model_save_path}")
+
+    if not os.path.exists(model_save_path):
+        os.makedirs(model_save_path)
+
+    date_ids = df_train['date_id'].values
+
+    
+    time_cost_list = []
+
+    for i in range(num_folds):
+        now_time = time.time()
+        start = i * fold_size
+        end = start + fold_size
+        if i < num_folds - 1:  # No need to purge after the last fold
+            purged_start = end - 2
+            purged_end = end + gap + 2
+            train_indices = (date_ids >= start) & (date_ids < purged_start) | (date_ids > purged_end)
+        else:
+            train_indices = (date_ids >= start) & (date_ids < end)
+
+        test_indices = (date_ids >= end) & (date_ids < end + fold_size)
+        
+        gc.collect()
+        
+        df_fold_train = df_train_feats[train_indices]
+        df_fold_train_target = df_train['target'][train_indices]
+        df_fold_valid = df_train_feats[test_indices]
+        df_fold_valid_target = df_train['target'][test_indices]
+
+        logger.info(f"Fold {i+1} Model Training")
+
+        # Train a LightGBM model for the current fold
+        xgb_model = XGBRegressor(**xgb_params)
+        xgb_model.fit(
+            df_fold_train[feature_columns],
+            df_fold_train_target,
+            eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)],
+            eval_metric='mae',
+            early_stopping_rounds=100,
+            verbose=True
+        )
+    
+        time_cost = time.time() - now_time
+        time_cost_list.append(time_cost)
+
+        #logger.info(f"cost time {time_cost}")
+        logger.info(f"cost time {str(datetime.timedelta(seconds=time_cost))}")
+
+        models.append(xgb_model)
+        # Save the model to a file
+        model_filename = os.path.join(model_save_path, f'doblez_{i+1}.txt')
+
+        xgb_model.save_model(model_filename)
+        logger.info(f"Model for fold {i+1} saved to {model_filename}")
+
+        # Evaluate model performance on the validation set
+        #------------LGB--------------#
+        # fold_predictions = lgb_model.predict(df_fold_valid[feature_columns])
+        # fold_score = mean_absolute_error(fold_predictions, df_fold_valid_target)
+        # scores.append(fold_score)
+        # logger.info(f":LGB Fold {i+1} MAE: {fold_score}")
+
+        #------------XGB--------------#
+        fold_predictions = xgb_model.predict(df_fold_valid[feature_columns])
+        fold_score = mean_absolute_error(fold_predictions, df_fold_valid_target)
+        scores.append(fold_score)
+        logger.info(f":XGB Fold {i+1} MAE: {fold_score}")
+
+        # Free up memory by deleting fold specific variables
+        del df_fold_train, df_fold_train_target, df_fold_valid, df_fold_valid_target
+        gc.collect()
+
+    # Calculate the average best iteration from all regular folds
+    #average_best_iteration = int(np.mean([model.best_iteration_ for model in models]))
+    average_best_iteration = int(np.mean([model.best_iteration for model in models]))
+    # Update the xgb_params with the average best iteration
+    final_model_params = xgb_params.copy()
+
+    # final_model_params['n_estimators'] = average_best_iteration
+    # print(f"Training final model with average best iteration: {average_best_iteration}")
+
+    # Train the final model on the entire dataset
+    num_model = 1
+
+    for i in range(num_model):
+        final_model = XGBRegressor(**final_model_params)
+        #final_model.fit(
+        #    df_train_feats[feature_columns],
+        #    df_train['target'],
+        #    callbacks=[
+        #        lgb.callback.log_evaluation(period=100),
+        #    ],
+        #)
+        final_model.fit(
+            df_train_feats[feature_columns],
+            df_train['target'],
+            eval_metric='mae',
+        )
+        # Append the final model to the list of models
+        models.append(final_model)
+        
+        # Calculate and print the average MAE across all folds
+#XGB_average_mae = np.mean(scores)
+#time_cost_all = sum(time_cost_list)
+#logger.info(f"Average MAE across all folds: {XGB_average_mae}")
+#logger.info(f"Time cost all folds: {str(datetime.timedelta(seconds=time_cost_all))}")
+
+
+# class MyXGBRegressor(XGBRegressor):
+    
+#     def __init__(self, **params):
+        
+#         super().__init__(**params)
+#         self.eval_set = params['eval_set']
+    
+#     def fit(self, X, y):
+#         # output progress every 100 iterations
+#         super().fit(X,y, eval_set=self.eval_set, verbose=100) 
+
+
+# class MyLGBRegressor(LGBMRegressor):
+    
+#     def __init__(self, **params):
+        
+#         super().__init__(**params)
+#         self.eval_set = params['eval_set']
+#         self.eval_metric = params['mae']
+#         self.early_stopping_rounds = params['early_stopping_rounds']
+    
+#     def fit(self, X, y):
+#         # output progress every 100 iterations
+#         super().fit(X,y, eval_set=self.eval_set, verbose=100, 
+#             eval_metric=self.eval_metric, early_stopping_rounds=self.early_stopping_rounds)
+
+
+### VotingRegressor
+
+if VR:
+    import numpy as np
+    from xgboost import XGBRegressor
+    from lightgdm import LGBMRegressor
+    from sklearn.metrics import mean_absolute_error
+    from sklearn.ensemble import VotingRegressor
+    import numpy as np
+    import gc
+    import lightgbm as lgb
+
+    
+    lgb_params = {
+        "objective": "mae",
+        "n_estimators": 10000,
+        "num_leaves": 256,
+        "subsample": 0.6,
+        "colsample_bytree": 0.8,
+        #"learning_rate": 0.00971,
+        "learning_rate": 0.01,
+        'max_depth': 11,
+        "n_jobs": 32,
+        "device": "gpu",
+        "gpu_device_id":0,
+        "verbosity": -1,
+        "importance_type": "gain",
+        #"reg_alpha": 0.1,
+        "reg_alpha": 0.2,
+        "reg_lambda": 3.25
+    }
+
+    logger.info(f"lgb_params: {lgb_params}")
+
+    xgb_params = {
+        "objective": "reg:squarederror",
+        "n_estimators": 10000,
+        #"n_estimators": 30,
+        "random_state": 42,
+        "subsample": 0.6,
+        "colsample_bytree": 0.5,
+        #"learning_rate": 0.00971,
+        "learning_rate": 0.01,
+        'max_depth': 11,
+        "verbosity": 3,
+        "reg_alpha": 0.5,
+        "reg_lambda": 1,
+        "tree_method":'gpu_hist',
+        "predictor":'gpu_predictor',
+        "gpu_id":1
+        "eval_metric" = 'mae'
+        "early_stopping_rounds" = params['early_stopping_rounds']
+    }
+
+
+    logger.info(f"xgb_params: {xgb_params}")
+
+    feature_columns = list(df_train_feats.columns)
+    #print(f"Features = {len(feature_columns)}")
+    logger.info(f"Features = {len(feature_columns)}")
+    #print(f"Feature length = {len(feature_columns)}")
+
+    num_folds = 5
+    fold_size = 480 // num_folds
+    gap = 5
+
+    models = []
+    models_cbt = []
+    scores = []
+
+
+    model_save_path = os.path.join(base_dir, model_dir, graph_name + '_modelitos_para_despues')
+    logger.info(f"model_save_path {model_save_path}")
+
+    if not os.path.exists(model_save_path):
+        os.makedirs(model_save_path)
+
+    date_ids = df_train['date_id'].values
+
+    
+    time_cost_list = []
+
+    for i in range(num_folds):
+        now_time = time.time()
+        start = i * fold_size
+        end = start + fold_size
+        if i < num_folds - 1:  # No need to purge after the last fold
+            purged_start = end - 2
+            purged_end = end + gap + 2
+            train_indices = (date_ids >= start) & (date_ids < purged_start) | (date_ids > purged_end)
+        else:
+            train_indices = (date_ids >= start) & (date_ids < end)
+
+        test_indices = (date_ids >= end) & (date_ids < end + fold_size)
+        
+        gc.collect()
+        
+        df_fold_train = df_train_feats[train_indices]
+        df_fold_train_target = df_train['target'][train_indices]
+        df_fold_valid = df_train_feats[test_indices]
+        df_fold_valid_target = df_train['target'][test_indices]
+
+        logger.info(f"Fold {i+1} Model Training")
+
+        # Train a LightGBM & XGB model for the current fold
+        lgb_model = lgb.LGBMRegressor(**lgb_params)
+        # lgb_model.fit(
+        #     df_fold_train[feature_columns],
+        #     df_fold_train_target,
+        #     eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)],
+        #     callbacks=[
+        #         lgb.callback.early_stopping(stopping_rounds=100),
+        #         lgb.callback.log_evaluation(period=100),
+        #     ],
+        # )
+        
+        lgb_model.set_params(early_stopping_rounds=100, eval_metric="mae", eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)])
+
+        #xgb_model.fit(
+        #     df_fold_train[feature_columns],
+        #     df_fold_train_target,
+        #     eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)],
+        #     eval_metric='mae',
+        #     early_stopping_rounds=100,
+        #     verbose=True
+        # )
+
+        # Train a LightGBM model for the current fold
+        #xgb_model = MyXGBRegressor(eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)],**xgb_params)
+        xgb_model = XGBRegressor(**xgb_params)
+        lgb_model.set_params(early_stopping_rounds=100, eval_metric="mae", eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)], verbose=True)
+        # xgb_model.fit(
+        #     df_fold_train[feature_columns],
+        #     df_fold_train_target,
+        #     eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)],
+        #     eval_metric='mae',
+        #     early_stopping_rounds=100,
+        #     verbose=True
+        # )
+
+        # Create a Voting Regressor
+        voting_regressor = VotingRegressor(estimators=[
+            ('xgb', xgb_regressor),
+            #('catboost', catboost_regressor),
+            ('lgbm', lgbm_regressor)
+        ], n_jobs=32, verbose=True, weights=regressor_weights)
+
+        # Train the Voting Regressor on the training data
+        voting_regressor.fit(df_fold_train[feature_columns], df_fold_train_target)
+    
+        time_cost = time.time() - now_time
+        time_cost_list.append(time_cost)
+
+        #logger.info(f"cost time {time_cost}")
+        logger.info(f"cost time {str(datetime.timedelta(seconds=time_cost))}")
+
+        models.append(xgb_model)
+        # Save the model to a file
+        model_filename = os.path.join(model_save_path, f'doblez_{i+1}.txt')
+
+        # TODO: add LGB save model
+        xgb_model.save_model(model_filename)
+        logger.info(f"Model for fold {i+1} saved to {model_filename}")
+
+        # Evaluate model performance on the validation set
+        #------------LGB--------------#
+        # fold_predictions = lgb_model.predict(df_fold_valid[feature_columns])
+        # fold_score = mean_absolute_error(fold_predictions, df_fold_valid_target)
+        # scores.append(fold_score)
+        # logger.info(f":LGB Fold {i+1} MAE: {fold_score}")
+
+        #------------XGB--------------#
+        fold_predictions = voting_regressor.predict(df_fold_valid[feature_columns])
+        fold_score = mean_absolute_error(fold_predictions, df_fold_valid_target)
+        scores.append(fold_score)
+        logger.info(f":VOTING Fold {i+1} MAE: {fold_score}")
+
+        # Free up memory by deleting fold specific variables
+        del df_fold_train, df_fold_train_target, df_fold_valid, df_fold_valid_target
+        gc.collect()
+
+    # Calculate the average best iteration from all regular folds
+    #average_best_iteration = int(np.mean([model.best_iteration_ for model in models]))
+    average_best_iteration = int(np.mean([model.best_iteration for model in models]))
+    # Update the xgb_params with the average best iteration
+    final_model_params = xgb_params.copy()
+
+    # final_model_params['n_estimators'] = average_best_iteration
+    # print(f"Training final model with average best iteration: {average_best_iteration}")
+
+    # Train the final model on the entire dataset
+    num_model = 1
+
+    #for i in range(num_model):
+        #final_model = XGBRegressor(**final_model_params)
+        #final_model.fit(
+        #    df_train_feats[feature_columns],
+        #    df_train['target'],
+        #    callbacks=[
+        #        lgb.callback.log_evaluation(period=100),
+        #    ],
+        #)
+        #final_model.fit(
+        #    df_train_feats[feature_columns],
+        #    df_train['target'],
+        #    eval_metric='mae',
+        #)
+        # Append the final model to the list of models
+        # models.append(final_model)
+        
+        # Calculate and print the average MAE across all folds
+XGB_average_mae = np.mean(scores)
 time_cost_all = sum(time_cost_list)
-logger.info(f"Average MAE across all folds: {LGB_average_mae}")
+logger.info(f"Average MAE across all folds: {XGB_average_mae}")
 logger.info(f"Time cost all folds: {str(datetime.timedelta(seconds=time_cost_all))}")
 
 ## NN
