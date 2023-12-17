@@ -785,7 +785,6 @@ if XGB:
         # Save the model to a file
         model_filename = os.path.join(model_save_path, f'doblez_{i+1}.txt')
 
-        xgb_model.save_model(model_filename)
         logger.info(f"Model for fold {i+1} saved to {model_filename}")
 
         # Evaluate model performance on the validation set
@@ -869,13 +868,12 @@ if SE:
         "random_state": 42,
         "device": "gpu",
         "gpu_device_id":0,
-        "verbosity": 100,
+        "verbosity": -1,
         "importance_type": "gain",
         #"reg_alpha": 0.1,
         "reg_alpha": 0.2,
         "reg_lambda": 3.25,
         "random_state": 0,
-        "verbose_eval": 100
     }
 
     logger.info(f"lgb_params: {lgb_params}")
@@ -890,7 +888,7 @@ if SE:
         #"learning_rate": 0.00971,
         "learning_rate": 0.01,
         'max_depth': 11,
-        "verbosity": 3,
+        "verbosity": -1,
         "reg_alpha": 0.5,
         "reg_lambda": 1,
         "tree_method":'gpu_hist',
@@ -946,9 +944,9 @@ if SE:
         df_fold_valid = df_train_feats[test_indices]
         df_fold_valid_target = df_train['target'][test_indices]
 
-        logger.info(f"Fold {i+1} Model Training")
+        logger.info(f"Fold {i+1} LGB Model Training")
 
-        # Train a LightGBM & XGB model for the current fold
+        # Train a LightGBM model for the current fold
         lgb_model = lgb.LGBMRegressor(**lgb_params)
 
         lgb_model.fit(
@@ -961,6 +959,7 @@ if SE:
              ],
         )
         
+        logger.info(f"Fold {i+1} XGB Model Training")
         # Train a XGB model for the current fold
         xgb_model = XGBRegressor(**xgb_params)
         xgb_model.fit(
@@ -969,7 +968,7 @@ if SE:
             eval_set=[(df_fold_valid[feature_columns], df_fold_valid_target)],
             eval_metric='mae',
             early_stopping_rounds=100,
-            verbose=True
+            verbose=10
         )
 
     
@@ -984,18 +983,22 @@ if SE:
         xgb_model_filename = os.path.join(model_save_path, f'xgb_doblez_{i+1}.txt')
         lgb_model_filename = os.path.join(model_save_path, f'lgb_doblez_{i+1}.txt')
 
-        # TODO: add LGB save model
         xgb_model.save_model(xgb_model_filename)
-        lgb_model.save_model(lgb_model_filename)
+        lgb_model.booster_.save_model(lgb_model_filename)
         logger.info(f"XGB Model for fold {i+1} saved to {xgb_model_filename}")
         logger.info(f"LGB Model for fold {i+1} saved to {lgb_model_filename}")
 
         # Evaluate model performance on the validation set
         #------------LGB--------------#
         lgb_fold_predictions = lgb_model.predict(df_fold_valid[feature_columns])
+        lgb_fold_score = mean_absolute_error(lgb_fold_predictions, df_fold_valid_target)
+        logger.info(f":LGB Fold {i+1} MAE: {lgb_fold_score}")
 
         #------------XGB--------------#
         xgb_fold_predictions = xgb_model.predict(df_fold_valid[feature_columns])
+        xgb_fold_score = mean_absolute_error(xgb_fold_predictions, df_fold_valid_target)
+        logger.info(f":XGB Fold {i+1} MAE: {xgb_fold_score}")
+
         fold_predictions = emsemble_weights[0] * lgb_fold_predictions + emsemble_weights[1] * xgb_fold_predictions
 
         fold_score = mean_absolute_error(fold_predictions, df_fold_valid_target)
