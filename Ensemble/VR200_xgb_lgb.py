@@ -899,7 +899,7 @@ if VR:
         "random_state": 42,
         "device": "gpu",
         "gpu_device_id":0,
-        "verbosity": -1,
+        "verbosity": 100,
         "importance_type": "gain",
         #"reg_alpha": 0.1,
         "reg_alpha": 0.2,
