@@ -6,6 +6,7 @@ import warnings
 from itertools import combinations
 from warnings import simplefilter
 import joblib
+from memory_profiler import profile
 import lightgbm as lgb
 import numpy as np
 import json
@@ -91,6 +92,7 @@ from sklearn.utils.validation import _deprecate_positional_args
 
 # modified code for group gaps; source
 # https://github.com/getgaurav2/scikit-learn/blob/d4a3af5cc9da3a76f0266932644b884c99724c57/sklearn/model_selection/_split.py#L2243
+@profile
 class PurgedGroupTimeSeriesSplit(_BaseKFold):
     """Time Series cross-validator variant with non-overlapping groups.
     Allows for a gap in groups to avoid potentially leaking info from
@@ -215,6 +217,7 @@ class PurgedGroupTimeSeriesSplit(_BaseKFold):
                     
             yield [int(i) for i in train_array], [int(i) for i in test_array]
     
+@profile
 def reduce_mem_usage(df, verbose=0):
     start_mem = df.memory_usage().sum() / 1024**2
     for col in df.columns:
@@ -301,7 +304,7 @@ def dfrank(newdf): # 添加基础排名因子
         newdf=pd.concat([newdf,(newdf[str(column)].rank(method="max", ascending=True,na_option='bottom')/len(newdf)).rename(f"{str(column)}_rerank")], axis=1) # 从大到小排序
     return newdf
 
-
+@profile
 def imbalance_features(df):
     # Define lists of price and size-related column names
     prices = ["reference_price", "far_price", "near_price", "ask_price", "bid_price", "wap"]
@@ -436,6 +439,7 @@ def imbalance_features(df):
 
     return df
 
+@profile
 def other_features(df):
     df["dow"] = df["date_id"] % 5  # Day of the week
     df["dom"] = df["date_id"] % 21  # Day of the month
@@ -454,6 +458,7 @@ def other_features(df):
 
     return df
 
+@profile
 def generate_all_features(df):
     # Select relevant columns for feature generation
     cols = [c for c in df.columns if c not in ["row_id", "time_id", "target"]]
