@@ -29,7 +29,7 @@ is_infer = True
 max_lookback = np.nan
 split_day = 435
 base_dir = '/home/joseph/Projects/Optiver---Trading-at-the-close'
-model_name = 'LGB200SFS'
+model_name = 'SFSLGB200'
 model_dir = 'SFS'
 log_dir = 'logs'
 results_dir = 'results'
@@ -293,6 +293,19 @@ def calculate_triplet_imbalance_numba(price, df):
     return features
 
 ### Feature Generation Functions
+
+def dfrank(newdf): # 添加基础排名因子
+    prices = ["reference_price", "far_price", "near_price", "ask_price", "bid_price", "wap"]
+    sizes = ["matched_size", "bid_size", "ask_size", "imbalance_size"]
+    columns=[column for column in newdf.columns if ((column in prices)or(column in sizes))]
+    for column in columns:
+        # 从小到大排名【测试下双排名有效果是因为加上了na_option='bottom'的处理机制还是因为实现的双排名方案】
+        newdf=pd.concat([newdf,(newdf[str(column)].rank(method="max", ascending=False,na_option='bottom')/len(newdf)).rename(f"{str(column)}_rank")], axis=1) # 从大到小排序
+        # 从大到小排名
+        newdf=pd.concat([newdf,(newdf[str(column)].rank(method="max", ascending=True,na_option='bottom')/len(newdf)).rename(f"{str(column)}_rerank")], axis=1) # 从大到小排序
+    return newdf
+
+
 def imbalance_features(df):
     # Define lists of price and size-related column names
     prices = ["reference_price", "far_price", "near_price", "ask_price", "bid_price", "wap"]
@@ -529,7 +542,8 @@ if LGB:
     
     lgb_params = {
         "objective": "mae",
-        "n_estimators": 10000,
+        #"n_estimators": 10000,
+        "n_estimators": 30,
         "num_leaves": 256,
         "subsample": 0.6,
         "colsample_bytree": 0.8,
@@ -653,10 +667,10 @@ if LGB:
         models.append(final_model)
         
         # Calculate and print the average MAE across all folds
-LGB_average_mae = np.mean(scores)
-time_cost_all = sum(time_cost_list)
-logger.info(f"Average MAE across all folds: {LGB_average_mae}")
-logger.info(f"Time cost all folds: {str(datetime.timedelta(seconds=time_cost_all))}")
+#LGB_average_mae = np.mean(scores)
+#time_cost_all = sum(time_cost_list)
+#logger.info(f"Average MAE across all folds: {LGB_average_mae}")
+#logger.info(f"Time cost all folds: {str(datetime.timedelta(seconds=time_cost_all))}")
 
 
 ### LGB
